@@ -1,975 +1,562 @@
 <!DOCTYPE html>
-
 <html lang="pt-BR">
-
 <head>
-
     <meta charset="UTF-8">
-
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
     <title>Agenda do Deputado Junior Mochi</title>
-
     <script src="https://cdn.tailwindcss.com"></script>
-
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-
     <style>
-
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
-
         body { font-family: 'Inter', sans-serif; background-color: #f7f9fc; }
-
         .card { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1); }
-
-        .unauthorized-badge { background-color: #fef08a; border-left: 6px solid #eab308; }
-
-       
-
-        /* Efeito de destaque para a logo sem fundo */
-
+        
+        /* Estilo para compromissos não autorizados */
+        .unauthorized-bar { 
+            background-color: #fef9c3; 
+            border-left: 6px solid #eab308; 
+        }
+        
+        /* Efeito de destaque para a logo */
         .logo-glow {
-
-            filter: drop-shadow(0 0 15px rgba(79, 70, 229, 0.4));
-
+            filter: drop-shadow(0 0 10px rgba(79, 70, 229, 0.3));
         }
 
- 
-
+        /* Classes para o PDF/Impressão */
         @media print {
-
             body > *:not(.print-container) { display: none !important; }
-
             .print-container { display: block !important; position: absolute; left: 0; top: 0; width: 100%; font-size: 10pt; color: #000; }
-
-            table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-
-            th, td { border: 1px solid #000; padding: 8px; text-align: left; }
-
+            table { width: 100%; border-collapse: collapse; margin-bottom: 20px; table-layout: fixed; }
+            th, td { border: 1px solid #000; padding: 6px; text-align: left; font-size: 9pt; word-wrap: break-word; }
+            th { background-color: #f3f4f6; }
             .date-header { background-color: #eee; border: 1px solid #000; padding: 4px 8px; font-weight: bold; margin-top: 15px; }
-
+            .red-text { color: red !important; font-weight: bold; }
+            .green-text { color: #064e3b !important; font-weight: bold; }
         }
-
     </style>
-
     <script type="module">
-
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-
         import { getFirestore, doc, addDoc, setDoc, getDoc, getDocs, onSnapshot, collection, query, where, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-       
-
+        
+        // Configurações do Firebase injetadas pelo ambiente
         const apiKey = "";
-
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'agenda-dep-mochi-v2';
-
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'agenda-mochi-vfinal';
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
- 
-
         let db, auth, currentUserData = null;
-
         let appointments = [];
+        let users = [];
 
- 
-
+        // Referências UI
         const loginScreen = document.getElementById('login-screen');
-
         const mainApp = document.getElementById('main-app');
+        const adminTabBtn = document.getElementById('tab-admin-btn');
+        const formTabBtn = document.getElementById('tab-form-btn');
+        const listTabBtn = document.getElementById('tab-list-btn');
 
-        const adminTab = document.getElementById('tab-admin');
-
-        const registerTab = document.getElementById('tab-form');
-
-       
-
+        // Inicialização do Firebase
         try {
-
             const app = initializeApp(firebaseConfig);
-
             db = getFirestore(app);
-
             auth = getAuth(app);
-
-           
-
+            
             const initAuth = async () => {
-
                 if (initialAuthToken) await signInWithCustomToken(auth, initialAuthToken);
-
                 else await signInAnonymously(auth);
-
             };
-
             initAuth();
+        } catch (e) { console.error("Erro Firebase:", e); }
 
-        } catch (e) { console.error(e); }
-
- 
-
-        // --- SISTEMA DE LOGIN COM DESATIVAÇÃO DO ACESSO INICIAL ---
-
+        // --- SISTEMA DE LOGIN ---
         window.handleLogin = async (e) => {
+            if(e) e.preventDefault();
+            const cpf = document.getElementById('login-cpf').value.replace(/\D/g, '');
+            const pass = document.getElementById('login-pass').value;
 
-            e.preventDefault();
-
-            const cpfInput = document.getElementById('login-cpf').value.replace(/\D/g, '');
-
-            const passInput = document.getElementById('login-pass').value;
-
- 
-
-            if (!cpfInput || !passInput) return alert("Preencha todos os campos");
-
- 
+            if (!cpf || !pass) return alert("Por favor, preencha o CPF e a Senha.");
 
             try {
-
-                const userDoc = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpfInput));
-
-               
-
-                if (userDoc.exists() && userDoc.data().password === passInput) {
-
+                // Tenta buscar o utilizador real
+                const userDoc = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpf));
+                
+                if (userDoc.exists() && userDoc.data().password === pass) {
                     currentUserData = userDoc.data();
-
-                    loginSuccess();
-
+                    enterApp();
                 } else {
-
-                    if (cpfInput === '00000000000' && passInput === 'admin123') {
-
+                    // Lógica de Login Mestre (apenas se não houver utilizadores)
+                    if (cpf === '00000000000' && pass === 'admin123') {
                         const usersSnap = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'users'));
-
-                       
-
                         if (usersSnap.empty) {
-
                             currentUserData = { cpf: '00000000000', name: 'Administrador Inicial', role: 'Administrador' };
-
-                            loginSuccess();
-
+                            enterApp();
                         } else {
-
-                            alert("O acesso administrativo inicial foi desativado por segurança pois já existem usuários cadastrados.");
-
+                            alert("Acesso de emergência desativado. Utilize uma conta cadastrada.");
                         }
-
                     } else {
-
                         alert("CPF ou Senha incorretos.");
-
                     }
-
                 }
-
-            } catch (err) { alert("Erro ao conectar ao servidor."); }
-
+            } catch (err) { 
+                console.error(err);
+                alert("Erro ao conectar ao banco de dados."); 
+            }
         };
 
- 
-
-        const loginSuccess = () => {
-
+        const enterApp = () => {
             loginScreen.classList.add('hidden');
-
             mainApp.classList.remove('hidden');
-
-            setupPermissions();
-
-            loadAppointments();
-
-            if(currentUserData.role === 'Administrador') loadUsers();
-
+            applyPermissions();
+            startDataListeners();
         };
 
- 
-
-        const setupPermissions = () => {
-
+        const applyPermissions = () => {
             const role = currentUserData.role;
+            document.getElementById('display-user-info').textContent = `${currentUserData.name} (${role})`;
+            
+            // Visibilidade das Abas
+            adminTabBtn.classList.toggle('hidden', role !== 'Administrador');
+            formTabBtn.classList.toggle('hidden', role === 'Visitante');
+            
+            // Botões de Acção
+            document.getElementById('actions-header').classList.toggle('hidden', role === 'Visitante');
+            document.getElementById('import-btn').classList.toggle('hidden', !['Administrador', 'Principal'].includes(role));
 
-            document.getElementById('user-display-name').textContent = `${currentUserData.name} (${role})`;
-
-            adminTab.classList.toggle('hidden', role !== 'Administrador');
-
-            registerTab.classList.toggle('hidden', role === 'Visitante');
-
-            document.getElementById('import-btn-container').classList.toggle('hidden', !['Administrador', 'Principal'].includes(role));
-
-            document.getElementById('export-btn-container').classList.toggle('hidden', role === 'Visitante');
-
-            if (role === 'Visitante') switchView('list');
-
-            else switchView('form');
-
+            // View Inicial
+            if (role === 'Visitante') switchTab('list');
+            else switchTab('form');
         };
 
- 
-
-        // --- GERENCIAMENTO DE USUÁRIOS (Admin) ---
-
-        window.saveUser = async (e) => {
-
-            e.preventDefault();
-
-            const cpf = document.getElementById('user-cpf').value.replace(/\D/g, '');
-
-            const name = document.getElementById('user-name').value;
-
-            const pass = document.getElementById('user-pass').value;
-
-            const role = document.getElementById('user-role').value;
-
- 
-
-            try {
-
-                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpf), {
-
-                    cpf, name, password: pass, role
-
-                });
-
-                alert("Usuário cadastrado!");
-
-                document.getElementById('user-form').reset();
-
-            } catch (e) { alert("Erro ao salvar usuário"); }
-
-        };
-
- 
-
-        const loadUsers = () => {
-
-            const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'users'));
-
-            onSnapshot(q, (snapshot) => {
-
-                const list = document.getElementById('users-list');
-
-                list.innerHTML = '';
-
-                snapshot.forEach(doc => {
-
-                    const u = doc.data();
-
-                    const div = document.createElement('div');
-
-                    div.className = "p-3 bg-gray-50 rounded-lg flex justify-between items-center text-sm mb-2 border";
-
-                    div.innerHTML = `<span><b>${u.name}</b> (${u.role})<br><small>CPF: ${u.cpf}</small></span>
-
-                                    <button onclick="window.deleteUser('${u.cpf}')" class="text-red-500 font-bold">Excluir</button>`;
-
-                    list.appendChild(div);
-
-                });
-
-            }, (error) => console.error("Erro ao carregar utilizadores:", error));
-
-        };
-
- 
-
-        window.deleteUser = async (cpf) => {
-
-            if(confirm("Excluir este usuário?")) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpf));
-
-        };
-
- 
-
-        // --- COMPROMISSOS ---
-
-        const loadAppointments = () => {
-
-            const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'));
-
-            onSnapshot(q, (snapshot) => {
-
+        // --- LISTENERS DE DADOS ---
+        const startDataListeners = () => {
+            // Compromissos
+            const qApp = query(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'));
+            onSnapshot(qApp, (snapshot) => {
                 appointments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
                 appointments.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
-
                 renderAppointments();
+            });
 
-            }, (error) => console.error("Erro ao carregar compromissos:", error));
-
+            // Utilizadores (apenas Admin)
+            if (currentUserData.role === 'Administrador') {
+                const qUser = query(collection(db, 'artifacts', appId, 'public', 'data', 'users'));
+                onSnapshot(qUser, (snapshot) => {
+                    users = snapshot.docs.map(doc => doc.data());
+                    renderUsers();
+                });
+            }
         };
 
- 
-
+        // --- GESTÃO DE COMPROMISSOS ---
         const renderAppointments = () => {
-
-            const list = document.getElementById('appointments-list');
-
-            list.innerHTML = '';
-
+            const container = document.getElementById('appointments-list');
+            container.innerHTML = '';
             let currentDay = '';
-
-            const filterValue = document.getElementById('list-filter').value;
-
+            const filter = document.getElementById('list-filter').value;
             const today = new Date().toISOString().split('T')[0];
 
- 
-
             let filtered = appointments.filter(app => {
-
-                if (currentUserData.role === 'Visitante') return app.authorized === true && app.date >= today;
-
-                if (filterValue === 'Ambos') return true;
-
-                return (app.activity_type || 'Mandato') === filterValue;
-
+                if (currentUserData.role === 'Visitante') {
+                    return app.authorized === true && app.date >= today;
+                }
+                if (filter === 'Ambos') return true;
+                return app.activity_type === filter;
             });
 
- 
+            if (filtered.length === 0) {
+                container.innerHTML = '<p class="text-center text-gray-400 py-10">Nenhum compromisso encontrado.</p>';
+                return;
+            }
 
             filtered.forEach(app => {
-
                 if (app.date !== currentDay) {
-
                     const h = document.createElement('h2');
-
                     h.className = 'text-lg font-bold mt-6 mb-2 border-b border-indigo-200 text-indigo-700';
-
-                    h.textContent = formatDate(app.date);
-
-                    list.appendChild(h);
-
+                    h.textContent = app.date.split('-').reverse().join('/');
+                    container.appendChild(h);
                     currentDay = app.date;
-
                 }
 
- 
-
                 const isHap = app.status === 'Acontecendo';
-
                 const isAuth = app.authorized === true;
-
-                const canAuth = ['Administrador', 'Principal'].includes(currentUserData.role);
-
- 
+                const isCamp = app.activity_type === 'Campanha';
+                const canManageAuth = ['Administrador', 'Principal'].includes(currentUserData.role);
 
                 const card = document.createElement('div');
-
-                card.className = `card p-4 mb-3 rounded-xl transition ${isAuth ? (isHap ? 'bg-red-50 ring-1 ring-red-300' : 'bg-white') : 'unauthorized-badge'}`;
-
-               
-
-                let timeColor = isHap ? 'text-red-700' : ((app.activity_type === 'Campanha') ? 'text-green-900 font-bold' : 'text-indigo-600');
-
- 
+                card.className = `card p-4 mb-3 rounded-xl transition ${!isAuth ? 'unauthorized-bar' : (isHap ? 'bg-red-50 ring-1 ring-red-300' : 'bg-white')}`;
+                
+                let timeColor = isHap ? 'text-red-700' : (isCamp ? 'text-green-900 font-black' : 'text-indigo-600');
 
                 card.innerHTML = `
-
                     <div class="flex items-start">
-
                         <div class="text-xl font-black w-16 flex-shrink-0 ${timeColor}">${app.time}</div>
-
                         <div class="flex-grow">
-
                             <p class="font-bold text-gray-800">${app.details}</p>
-
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 mt-2 text-xs text-gray-500">
-
                                 <div><span class="font-semibold">Local:</span> ${app.location || '-'}</div>
-
                                 <div><span class="font-semibold">Atividade:</span> ${app.activity_type || 'Mandato'}</div>
-
-                                <div><span class="font-semibold">Imprensa:</span> ${app.press_coverage === 'Acompanhar' ? '<u>Acompanhar</u>' : 'Não Acompanhar'}</div>
-
-                                ${!isAuth ? '<div class="text-yellow-700 font-bold">AGUARDANDO AUTORIZAÇÃO</div>' : ''}
-
+                                <div><span class="font-semibold">Contato:</span> ${app.contact || '-'}</div>
+                                <div><span class="font-semibold">Imprensa:</span> ${app.press_coverage === 'Acompanhar' ? '<u class="font-bold">Acompanhar</u>' : 'Não Acompanhar'}</div>
                             </div>
-
+                            ${!isAuth ? '<div class="mt-2 inline-block px-2 py-0.5 bg-yellow-500 text-white text-[10px] font-bold rounded">AGUARDANDO AUTORIZAÇÃO</div>' : ''}
                         </div>
-
                         <div class="flex space-x-1 ml-2">
-
-                            ${canAuth ? `<button onclick="window.toggleAuth('${app.id}', ${!isAuth})" class="p-1 ${isAuth ? 'text-gray-400' : 'text-green-600 font-bold'} rounded" title="Autorizar">${isAuth ? '🔓' : '✅'}</button>` : ''}
-
+                            ${canManageAuth ? `<button onclick="window.toggleAuth('${app.id}', ${!isAuth})" class="p-1.5 bg-gray-100 rounded-lg hover:bg-gray-200" title="Autorizar/Desautorizar">${isAuth ? '🔓' : '✅'}</button>` : ''}
                             ${currentUserData.role !== 'Visitante' ? `
-
-                                <button onclick="window.duplicateApp('${app.id}')" class="p-1 text-purple-600 rounded">❐</button>
-
-                                <button onclick="window.editApp('${app.id}')" class="p-1 text-blue-600 rounded">✎</button>
-
-                                <button onclick="window.deleteApp('${app.id}')" class="p-1 text-red-600 rounded">✕</button>
-
+                                <button onclick="window.duplicateApp('${app.id}')" class="p-1.5 bg-purple-100 text-purple-600 rounded-lg" title="Duplicar">❐</button>
+                                <button onclick="window.editApp('${app.id}')" class="p-1.5 bg-blue-100 text-blue-600 rounded-lg" title="Editar">✎</button>
+                                <button onclick="window.deleteApp('${app.id}')" class="p-1.5 bg-red-100 text-red-600 rounded-lg" title="Eliminar">✕</button>
                             ` : ''}
-
                         </div>
-
                     </div>
-
                 `;
-
-                list.appendChild(card);
-
+                container.appendChild(card);
             });
-
         };
-
- 
 
         window.saveAppointment = async (e) => {
-
             e.preventDefault();
-
-            const id = document.getElementById('appointment-id').value;
-
+            const id = document.getElementById('app-id').value;
             const isPrivileged = ['Administrador', 'Principal'].includes(currentUserData.role);
 
-           
-
             const data = {
-
-                date: document.getElementById('appointment-date').value,
-
-                time: document.getElementById('appointment-time').value,
-
-                details: document.getElementById('appointment-details').value.trim(),
-
-                press_coverage: document.getElementById('press-coverage').value,
-
-                contact: document.getElementById('appointment-contact').value.trim(),
-
-                activity_type: document.getElementById('activity-type').value,
-
-                location: document.getElementById('appointment-location').value.trim(),
-
-                status: document.getElementById('appointment-status').checked ? 'Acontecendo' : '',
-
+                date: document.getElementById('app-date').value,
+                time: document.getElementById('app-time').value,
+                details: document.getElementById('app-details').value.trim(),
+                contact: document.getElementById('app-contact').value.trim(),
+                activity_type: document.getElementById('app-activity').value,
+                press_coverage: document.getElementById('app-press').value,
+                location: document.getElementById('app-location').value.trim(),
+                status: document.getElementById('app-status').checked ? 'Acontecendo' : '',
                 authorized: isPrivileged ? true : false
-
             };
 
- 
-
             try {
-
                 const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'appointments');
-
                 if (id) await setDoc(doc(colRef, id), data, { merge: true });
-
                 else await addDoc(colRef, data);
-
-               
-
-                alert("Compromisso registrado!");
-
-                document.getElementById('appointment-form').reset();
-
-                document.getElementById('appointment-id').value = '';
-
-                document.getElementById('appointment-date').value = new Date().toISOString().split('T')[0];
-
-            } catch (e) { alert("Erro ao salvar"); }
-
+                
+                alert("Compromisso salvo com sucesso!");
+                resetAppForm();
+            } catch (err) { alert("Erro ao salvar dados."); }
         };
-
- 
 
         window.toggleAuth = async (id, status) => {
-
             await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'appointments', id), { authorized: status }, { merge: true });
-
         };
 
- 
+        // --- GESTÃO DE UTILIZADORES ---
+        window.saveUser = async (e) => {
+            e.preventDefault();
+            const cpf = document.getElementById('u-cpf').value.replace(/\D/g, '');
+            const name = document.getElementById('u-name').value;
+            const pass = document.getElementById('u-pass').value;
+            const role = document.getElementById('u-role').value;
 
-        window.exportPDFTable = () => {
+            if(!cpf || !name || !pass) return alert("Preencha todos os campos do utilizador.");
 
-            const start = document.getElementById('exp-start').value;
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpf), { cpf, name, password: pass, role });
+            alert("Utilizador cadastrado!");
+            document.getElementById('user-form').reset();
+        };
 
-            const end = document.getElementById('exp-end').value;
-
-            const typeFilter = document.getElementById('exp-filter').value;
-
-           
-
-            let filtered = appointments.filter(a => a.authorized === true && a.date >= start && a.date <= end);
-
-            if (typeFilter !== 'Ambos') filtered = filtered.filter(a => (a.activity_type || 'Mandato') === typeFilter);
-
- 
-
-            if (!filtered.length) return alert("Nenhum compromisso autorizado encontrado para o período.");
-
- 
-
-            let printHTML = `<div class="print-container"><h1 style="text-align:center">Agenda - Deputado Junior Mochi</h1>`;
-
-            const grouped = {};
-
-            filtered.forEach(app => {
-
-                if (!grouped[app.date]) grouped[app.date] = [];
-
-                grouped[app.date].push(app);
-
+        const renderUsers = () => {
+            const list = document.getElementById('users-list');
+            list.innerHTML = '';
+            users.forEach(u => {
+                const div = document.createElement('div');
+                div.className = "p-3 bg-gray-50 rounded-xl border mb-2 flex justify-between items-center text-sm";
+                div.innerHTML = `<div><b>${u.name}</b><br><span class="text-xs text-gray-500">${u.role} | CPF: ${u.cpf}</span></div>
+                                 <button onclick="window.deleteUser('${u.cpf}')" class="text-red-500 font-bold px-2">✕</button>`;
+                list.appendChild(div);
             });
+        };
 
- 
+        window.deleteUser = async (cpf) => {
+            if(confirm("Deseja mesmo eliminar este acesso?")) {
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpf));
+            }
+        };
+
+        // --- EXPORTAR / IMPORTAR ---
+        window.exportPDFTable = () => {
+            const start = document.getElementById('exp-start').value;
+            const end = document.getElementById('exp-end').value;
+            const filter = document.getElementById('exp-filter').value;
+
+            // Regra: Somente Autorizados
+            let filtered = appointments.filter(a => a.authorized === true && a.date >= start && a.date <= end);
+            if (filter !== 'Ambos') filtered = filtered.filter(a => a.activity_type === filter);
+
+            if (!filtered.length) return alert("Nenhum compromisso autorizado para este período.");
+
+            let html = `<div class="print-container"><h1 style="text-align:center">Agenda - Deputado Junior Mochi</h1><p style="text-align:center">Período: ${start.split('-').reverse().join('/')} a ${end.split('-').reverse().join('/')}</p>`;
+            
+            const grouped = {};
+            filtered.forEach(app => {
+                if (!grouped[app.date]) grouped[app.date] = [];
+                grouped[app.date].push(app);
+            });
 
             Object.keys(grouped).sort().forEach(date => {
-
-                printHTML += `
-
-                    <div class="date-header">DATA: ${formatDate(date)}</div>
-
+                html += `
+                    <div class="date-header">DATA: ${date.split('-').reverse().join('/')}</div>
                     <table>
-
-                        <thead>
-
-                            <tr><th>Horário - Atividade</th><th>Compromisso</th><th>Imprensa</th><th>Contato</th><th>Local</th></tr>
-
-                        </thead>
-
-                        <tbody>
-
-                `;
-
+                        <thead><tr><th style="width:20%">Horário - Atividade</th><th style="width:35%">Compromisso</th><th style="width:15%">Imprensa</th><th style="width:15%">Contato</th><th style="width:15%">Local</th></tr></thead>
+                        <tbody>`;
                 grouped[date].forEach(app => {
-
-                    const rowStyle = app.status === 'Acontecendo' ? 'color:red; font-weight:bold' : '';
-
-                    printHTML += `
-
-                        <tr style="${rowStyle}">
-
-                            <td>${app.time} - ${app.activity_type || 'Mandato'}</td>
-
+                    const isRed = app.status === 'Acontecendo' ? 'red-text' : '';
+                    const isGreen = app.activity_type === 'Campanha' ? 'green-text' : '';
+                    html += `
+                        <tr class="${isRed}">
+                            <td class="${isGreen}">${app.time} - ${app.activity_type}</td>
                             <td>${app.details}</td>
-
-                            <td>${app.press_coverage}</td>
-
+                            <td>${app.press_coverage === 'Acompanhar' ? '<u>Acompanhar</u>' : 'Não'}</td>
                             <td>${app.contact || '-'}</td>
-
                             <td>${app.location || '-'}</td>
-
                         </tr>`;
-
                 });
-
-                printHTML += `</tbody></table>`;
-
+                html += `</tbody></table>`;
             });
-
-           
+            html += `</div>`;
 
             const win = window.open('', '_blank');
-
-            win.document.write(`<html><head><style>body{font-family:sans-serif;padding:20px} table{width:100%;border-collapse:collapse;margin-bottom:20px} th,td{border:1px solid #000;padding:6px;font-size:9pt} .date-header{background:#eee;padding:4px;font-weight:bold;border:1px solid #000}</style></head><body>${printHTML}</body></html>`);
-
+            win.document.write(`<html><head><style>${document.querySelector('style').innerHTML}</style></head><body>${html}</body></html>`);
             win.document.close();
-
             win.print();
-
         };
 
- 
+        window.processImport = (e) => {
+            const file = e.target.files[0];
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onload = async (evt) => {
+                const data = new Uint8Array(evt.target.result);
+                const wb = XLSX.read(data, { type: 'array' });
+                const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+                
+                if(confirm(`Importar ${json.length} registros?`)) {
+                    const batch = writeBatch(db);
+                    const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'appointments');
+                    json.forEach(row => {
+                        const newDoc = doc(colRef);
+                        batch.set(newDoc, {
+                            date: String(row.Data || ''),
+                            time: String(row.Horario || '00:00'),
+                            details: String(row.Compromisso || ''),
+                            contact: String(row.Contato || ''),
+                            activity_type: String(row.Atividade || 'Mandato'),
+                            press_coverage: String(row.Imprensa || 'Não Acompanhar'),
+                            location: String(row.Local || ''),
+                            status: String(row.Status || ''),
+                            authorized: true
+                        });
+                    });
+                    await batch.commit();
+                    alert("Importação concluída!");
+                    document.getElementById('import-modal').classList.add('hidden');
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        };
 
-        const switchView = (viewName) => {
-
-            document.getElementById('form-view').classList.toggle('hidden', viewName !== 'form');
-
-            document.getElementById('list-view').classList.toggle('hidden', viewName !== 'list');
-
-            document.getElementById('admin-view').classList.toggle('hidden', viewName !== 'admin');
-
-           
-
-            const tabs = { 'form': 'tab-form', 'list': 'tab-list', 'admin': 'tab-admin' };
-
-            Object.keys(tabs).forEach(k => {
-
-                const el = document.getElementById(tabs[k]);
-
-                if (!el) return;
-
-                if (k === viewName) { el.classList.add('bg-indigo-600', 'text-white'); el.classList.remove('bg-gray-200'); }
-
-                else { el.classList.remove('bg-indigo-600', 'text-white'); el.classList.add('bg-gray-200'); }
-
+        // --- AUXILIARES ---
+        const switchTab = (tab) => {
+            document.getElementById('form-view').classList.toggle('hidden', tab !== 'form');
+            document.getElementById('list-view').classList.toggle('hidden', tab !== 'list');
+            document.getElementById('admin-view').classList.toggle('hidden', tab !== 'admin');
+            
+            const btns = { 'form': formTabBtn, 'list': listTabBtn, 'admin': adminTabBtn };
+            Object.keys(btns).forEach(k => {
+                if(!btns[k]) return;
+                if(k === tab) { btns[k].classList.add('bg-indigo-600', 'text-white'); btns[k].classList.remove('bg-gray-200', 'text-gray-700'); }
+                else { btns[k].classList.remove('bg-indigo-600', 'text-white'); btns[k].classList.add('bg-gray-200', 'text-gray-700'); }
             });
-
         };
 
- 
-
-        const formatDate = (d) => d.split('-').reverse().join('/');
-
- 
-
-        window.onload = () => {
-
-            document.getElementById('appointment-date').value = new Date().toISOString().split('T')[0];
-
-            document.getElementById('tab-form').onclick = () => switchView('form');
-
-            document.getElementById('tab-list').onclick = () => switchView('list');
-
-            document.getElementById('tab-admin').onclick = () => switchView('admin');
-
-            document.getElementById('list-filter').onchange = renderAppointments;
-
+        const resetAppForm = () => {
+            document.getElementById('appointment-form').reset();
+            document.getElementById('app-id').value = '';
+            document.getElementById('app-date').value = new Date().toISOString().split('T')[0];
+            document.getElementById('form-title').textContent = "Novo Compromisso";
         };
-
- 
 
         window.editApp = (id) => {
-
             const app = appointments.find(a => a.id === id);
-
             if(!app) return;
-
-            switchView('form');
-
-            document.getElementById('appointment-id').value = app.id;
-
-            document.getElementById('appointment-date').value = app.date;
-
-            document.getElementById('appointment-time').value = app.time;
-
-            document.getElementById('appointment-details').value = app.details;
-
-            document.getElementById('appointment-contact').value = app.contact || '';
-
-            document.getElementById('activity-type').value = app.activity_type || 'Mandato';
-
-            document.getElementById('press-coverage').value = app.press_coverage;
-
-            document.getElementById('appointment-location').value = app.location || '';
-
-            document.getElementById('appointment-status').checked = app.status === 'Acontecendo';
-
+            switchTab('form');
+            document.getElementById('app-id').value = app.id;
+            document.getElementById('app-date').value = app.date;
+            document.getElementById('app-time').value = app.time;
+            document.getElementById('app-details').value = app.details;
+            document.getElementById('app-contact').value = app.contact || '';
+            document.getElementById('app-activity').value = app.activity_type || 'Mandato';
+            document.getElementById('app-press').value = app.press_coverage || 'Não Acompanhar';
+            document.getElementById('app-location').value = app.location || '';
+            document.getElementById('app-status').checked = app.status === 'Acontecendo';
             document.getElementById('form-title').textContent = "Editar Compromisso";
-
         };
-
- 
-
-        window.deleteApp = async (id) => {
-
-            if(confirm("Excluir?")) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'appointments', id));
-
-        };
-
- 
 
         window.duplicateApp = (id) => {
-
             window.editApp(id);
-
-            document.getElementById('appointment-id').value = '';
-
+            document.getElementById('app-id').value = '';
             document.getElementById('form-title').textContent = "Duplicar Compromisso";
-
         };
 
+        window.deleteApp = async (id) => {
+            if(confirm("Eliminar compromisso?")) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'appointments', id));
+        };
+
+        window.onload = () => {
+            formTabBtn.onclick = () => { resetAppForm(); switchTab('form'); };
+            listTabBtn.onclick = () => switchTab('list');
+            adminTabBtn.onclick = () => switchTab('admin');
+            document.getElementById('list-filter').onchange = renderAppointments;
+            document.getElementById('import-file').onchange = window.processImport;
+        };
     </script>
-
 </head>
-
 <body class="pb-10">
 
- 
-
-    <!-- TELA DE LOGIN -->
-
+    <!-- LOGIN -->
     <div id="login-screen" class="fixed inset-0 bg-indigo-900 flex items-center justify-center p-4 z-[100]">
-
-        <div class="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl text-center">
-
-            <!-- Logo com Efeito de Sombreado -->
-
-            <div class="flex justify-center mb-6">
-
-                <img src="https://lh3.googleusercontent.com/d/1qpnoVc0Qy2Y3i9CMxjS0reoQTrhiP2b4" alt="Logo Deputado" class="h-24 w-auto object-contain logo-glow">
-
-            </div>
-
-           
-
-            <h1 class="text-2xl font-black text-indigo-900 mb-2 leading-tight">Acesso Restrito</h1>
-
-            <p class="text-gray-500 text-sm mb-6 font-medium">Agenda Deputado Junior Mochi</p>
-
-           
-
-            <form onsubmit="handleLogin(event)" class="space-y-4 text-left" id="login-form">
-
+        <div class="bg-white rounded-[2.5rem] p-10 w-full max-w-sm shadow-2xl text-center">
+            <img src="https://lh3.googleusercontent.com/d/1qpnoVc0Qy2Y3i9CMxjS0reoQTrhiP2b4" alt="Logo" class="h-28 mx-auto mb-6 logo-glow">
+            <h1 class="text-2xl font-black text-indigo-900 mb-6">Acesso à Agenda</h1>
+            <form onsubmit="window.handleLogin(event)" class="space-y-4 text-left">
                 <div>
-
-                    <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider">CPF (Apenas números)</label>
-
-                    <input type="text" id="login-cpf" class="mt-1 w-full border rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="00000000000">
-
+                    <label class="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">CPF (Apenas Números)</label>
+                    <input type="text" id="login-cpf" class="w-full bg-gray-50 border-0 rounded-2xl p-4 focus:ring-2 focus:ring-indigo-500 outline-none transition" placeholder="00000000000">
                 </div>
-
                 <div>
-
-                    <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider">Senha</label>
-
-                    <input type="password" id="login-pass" class="mt-1 w-full border rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="••••••••">
-
+                    <label class="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Senha</label>
+                    <input type="password" id="login-pass" class="w-full bg-gray-50 border-0 rounded-2xl p-4 focus:ring-2 focus:ring-indigo-500 outline-none transition" placeholder="••••••••">
                 </div>
-
-                <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl shadow-lg hover:bg-indigo-700 transition active:scale-95">Entrar no Sistema</button>
-
+                <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl shadow-xl hover:bg-indigo-700 transition active:scale-95">Entrar</button>
             </form>
-
-            <p class="text-[9px] text-gray-400 mt-6 uppercase font-bold tracking-tighter">Acesso de emergência desativado após o 1º cadastro</p>
-
+            <p class="text-[9px] text-gray-400 mt-8 uppercase font-bold tracking-tighter">Acesso Mestre: CPF 00000000000 / Senha admin123</p>
         </div>
-
     </div>
 
- 
-
-    <!-- APP PRINCIPAL -->
-
+    <!-- MAIN APP -->
     <div id="main-app" class="hidden">
+        <div id="auth-status" class="fixed top-0 left-0 right-0 p-1 text-center bg-green-100 text-green-700 text-[10px] z-50">Sessão Ativa</div>
 
-        <div id="auth-status" class="fixed top-0 left-0 right-0 p-1 text-center bg-green-100 text-green-700 text-[10px] z-50">Logado</div>
-
- 
-
-        <div class="max-w-4xl mx-auto p-4 md:pt-10">
-
-            <header class="flex flex-col md:flex-row justify-between items-center mb-6">
-
-                <div class="text-center md:text-left flex items-center space-x-4">
-
-                    <img src="https://lh3.googleusercontent.com/d/1qpnoVc0Qy2Y3i9CMxjS0reoQTrhiP2b4" alt="Logo" class="h-12 w-auto hidden md:block">
-
+        <div class="max-w-4xl mx-auto p-4 pt-10">
+            <header class="flex flex-col md:flex-row justify-between items-center mb-8">
+                <div class="flex items-center space-x-4">
+                    <img src="https://lh3.googleusercontent.com/d/1qpnoVc0Qy2Y3i9CMxjS0reoQTrhiP2b4" alt="Mochi" class="h-14 logo-glow">
                     <div>
-
-                        <h1 class="text-3xl font-black text-indigo-900 leading-none">Agenda Mochi</h1>
-
-                        <p id="user-display-name" class="text-indigo-500 text-sm font-bold mt-1"></p>
-
+                        <h1 class="text-2xl font-black text-indigo-900 leading-none">Agenda Junior Mochi</h1>
+                        <p id="display-user-info" class="text-indigo-500 text-xs font-bold mt-1"></p>
                     </div>
-
                 </div>
-
-                <div class="flex space-x-2 mt-4 md:mt-0">
-
-                    <div id="import-btn-container"><button onclick="document.getElementById('import-modal').classList.remove('hidden')" class="px-3 py-1.5 bg-purple-600 text-white text-xs font-bold rounded-lg transition hover:bg-purple-700">↑ Importar</button></div>
-
-                    <div id="export-btn-container"><button onclick="document.getElementById('export-modal').classList.remove('hidden')" class="px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded-lg transition hover:bg-green-700">↓ Gerar PDF</button></div>
-
-                    <button onclick="location.reload()" class="px-3 py-1.5 bg-gray-200 text-gray-600 text-xs font-bold rounded-lg">Sair</button>
-
+                <div id="actions-header" class="flex space-x-2 mt-4 md:mt-0">
+                    <button id="import-btn" onclick="document.getElementById('import-modal').classList.remove('hidden')" class="px-3 py-2 bg-purple-600 text-white text-xs font-bold rounded-xl transition hover:bg-purple-700">↑ Importar</button>
+                    <button onclick="document.getElementById('export-modal').classList.remove('hidden')" class="px-3 py-2 bg-green-600 text-white text-xs font-bold rounded-xl transition hover:bg-green-700">↓ Gerar PDF</button>
+                    <button onclick="location.reload()" class="px-3 py-2 bg-gray-200 text-gray-600 text-xs font-bold rounded-xl">Sair</button>
                 </div>
-
             </header>
 
- 
-
-            <div id="message-container" class="hidden text-center"></div>
-
- 
-
-            <div class="flex border-b border-gray-300 mb-6">
-
-                <button id="tab-form" class="flex-1 py-3 px-4 text-center text-sm font-semibold rounded-t-lg transition-colors bg-indigo-600 text-white">Cadastro</button>
-
-                <button id="tab-list" class="flex-1 py-3 px-4 text-center text-sm font-semibold rounded-t-lg transition-colors bg-gray-200 text-gray-700">Agenda</button>
-
-                <button id="tab-admin" class="flex-1 py-3 px-4 text-center text-sm font-semibold rounded-t-lg transition-colors bg-gray-200 text-gray-700 hidden">Usuários</button>
-
+            <!-- TABS -->
+            <div class="flex border-b border-gray-200 mb-8 overflow-hidden rounded-t-2xl">
+                <button id="tab-form-btn" class="flex-1 py-4 text-sm font-bold transition">Cadastro</button>
+                <button id="tab-list-btn" class="flex-1 py-4 text-sm font-bold transition">Agenda</button>
+                <button id="tab-admin-btn" class="flex-1 py-4 text-sm font-bold transition hidden">Usuários</button>
             </div>
-
- 
 
             <!-- VIEW: CADASTRO -->
-
             <div id="form-view">
-
-                <div class="card bg-white p-6 rounded-2xl">
-
-                    <h2 id="form-title" class="text-xl font-bold mb-4 text-indigo-600">Novo Compromisso</h2>
-
-                    <form onsubmit="window.saveAppointment(event)" id="appointment-form" class="space-y-4">
-
-                        <input type="hidden" id="appointment-id">
-
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-
-                            <div><label class="text-xs font-bold text-gray-500 uppercase">Data *</label><input type="date" id="appointment-date" required class="w-full border rounded-lg p-2 mt-1"></div>
-
-                            <div><label class="text-xs font-bold text-gray-500 uppercase">Horário *</label><input type="time" id="appointment-time" required class="w-full border rounded-lg p-2 mt-1"></div>
-
+                <div class="card bg-white p-8 rounded-3xl">
+                    <h2 id="form-title" class="text-xl font-bold mb-6 text-indigo-600 border-l-4 border-indigo-600 pl-4">Novo Compromisso</h2>
+                    <form onsubmit="window.saveAppointment(event)" id="appointment-form" class="space-y-5">
+                        <input type="hidden" id="app-id">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                            <div><label class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Data *</label><input type="date" id="app-date" required class="w-full bg-gray-50 border-0 rounded-xl p-3 mt-1 focus:ring-2 focus:ring-indigo-500 outline-none"></div>
+                            <div><label class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Horário *</label><input type="time" id="app-time" required class="w-full bg-gray-50 border-0 rounded-xl p-3 mt-1 focus:ring-2 focus:ring-indigo-500 outline-none"></div>
                         </div>
-
-                        <div><label class="text-xs font-bold text-gray-500 uppercase">Compromisso *</label><textarea id="appointment-details" rows="2" required class="w-full border rounded-lg p-2 mt-1" placeholder="Descrição"></textarea></div>
-
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-
-                            <div><label class="text-xs font-bold text-gray-500 uppercase">Contato</label><input type="text" id="appointment-contact" class="w-full border rounded-lg p-2 mt-1"></div>
-
-                            <div><label class="text-xs font-bold text-gray-500 uppercase">Atividade</label><select id="activity-type" class="w-full border rounded-lg p-2 mt-1"><option value="Mandato">Mandato</option><option value="Campanha">Campanha</option></select></div>
-
-                            <div><label class="text-xs font-bold text-gray-500 uppercase">Imprensa</label><select id="press-coverage" class="w-full border rounded-lg p-2 mt-1"><option value="Não Acompanhar">Não Acompanhar</option><option value="Acompanhar">Acompanhar</option></select></div>
-
+                        <div><label class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Compromisso *</label><textarea id="app-details" rows="2" required class="w-full bg-gray-50 border-0 rounded-xl p-3 mt-1 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Descrição detalhada"></textarea></div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+                            <div><label class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Contato</label><input type="text" id="app-contact" class="w-full bg-gray-50 border-0 rounded-xl p-3 mt-1 focus:ring-2 focus:ring-indigo-500 outline-none"></div>
+                            <div><label class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Atividade</label><select id="app-activity" class="w-full bg-gray-50 border-0 rounded-xl p-3 mt-1 focus:ring-2 focus:ring-indigo-500 outline-none"><option value="Mandato">Mandato</option><option value="Campanha">Campanha</option></select></div>
+                            <div><label class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Imprensa</label><select id="app-press" class="w-full bg-gray-50 border-0 rounded-xl p-3 mt-1 focus:ring-2 focus:ring-indigo-500 outline-none"><option value="Não Acompanhar">Não Acompanhar</option><option value="Acompanhar">Acompanhar</option></select></div>
                         </div>
-
-                        <div><label class="text-xs font-bold text-gray-500 uppercase">Local</label><input type="text" id="appointment-location" class="w-full border rounded-lg p-2 mt-1"></div>
-
-                        <div class="flex items-center bg-red-50 p-3 rounded-xl">
-
-                            <input type="checkbox" id="appointment-status" class="w-5 h-5"><label class="ml-2 text-sm font-bold text-red-600 uppercase">Acontecendo</label>
-
+                        <div><label class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Local</label><input type="text" id="app-location" class="w-full bg-gray-50 border-0 rounded-xl p-3 mt-1 focus:ring-2 focus:ring-indigo-500 outline-none"></div>
+                        <div class="flex items-center bg-red-50 p-4 rounded-2xl border border-red-100">
+                            <input type="checkbox" id="app-status" class="w-5 h-5 text-red-600 rounded-lg cursor-pointer">
+                            <label for="app-status" class="ml-3 text-sm font-bold text-red-600 cursor-pointer">ACONTECENDO</label>
                         </div>
-
-                        <div class="flex justify-end pt-4"><button type="submit" id="save-appointment-btn" class="px-10 py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md">Salvar Registro</button></div>
-
+                        <div class="flex justify-end pt-4"><button type="submit" class="px-12 py-4 bg-indigo-600 text-white font-bold rounded-2xl shadow-xl hover:bg-indigo-700 transition active:scale-95">Salvar Registro</button></div>
                     </form>
-
                 </div>
-
             </div>
 
- 
-
-            <!-- VIEW: AGENDA -->
-
+            <!-- VIEW: LISTA -->
             <div id="list-view" class="hidden">
-
-                <div class="mb-4 bg-white p-3 rounded-xl border flex items-center">
-
-                    <label class="text-xs font-bold text-gray-400 mr-2 uppercase">Filtro:</label>
-
-                    <select id="list-filter" class="text-sm font-bold text-gray-700 outline-none flex-grow">
-
+                <div class="mb-6 bg-white p-4 rounded-2xl border flex items-center shadow-sm">
+                    <label class="text-[10px] font-black text-gray-400 mr-4 uppercase tracking-widest">Filtrar:</label>
+                    <select id="list-filter" class="text-sm font-bold text-gray-700 outline-none bg-transparent cursor-pointer flex-grow">
                         <option value="Ambos">Tudo (Mandato e Campanha)</option>
-
                         <option value="Mandato">Apenas Mandato</option>
-
                         <option value="Campanha">Apenas Campanha</option>
-
                     </select>
-
                 </div>
-
                 <div id="appointments-list" class="space-y-4"></div>
-
             </div>
 
- 
-
-            <!-- VIEW: USUÁRIOS (ADMIN) -->
-
+            <!-- VIEW: USUÁRIOS -->
             <div id="admin-view" class="hidden">
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-                    <div class="card bg-white p-6 rounded-2xl">
-
-                        <h3 class="font-bold mb-4 text-indigo-600">Cadastrar Usuário</h3>
-
-                        <form onsubmit="window.saveUser(event)" id="user-form" class="space-y-3">
-
-                            <input type="text" id="user-cpf" placeholder="CPF" class="w-full border p-2 rounded-lg text-sm">
-
-                            <input type="text" id="user-name" placeholder="Nome Completo" class="w-full border p-2 rounded-lg text-sm">
-
-                            <input type="password" id="user-pass" placeholder="Senha" class="w-full border p-2 rounded-lg text-sm">
-
-                            <select id="user-role" class="w-full border p-2 rounded-lg text-sm">
-
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div class="card bg-white p-8 rounded-3xl">
+                        <h3 class="font-bold text-indigo-600 mb-6 border-l-4 border-indigo-600 pl-4">Novo Usuário</h3>
+                        <form onsubmit="window.saveUser(event)" id="user-form" class="space-y-4">
+                            <input type="text" id="u-cpf" placeholder="CPF (números)" class="w-full bg-gray-50 rounded-xl p-3 border-0 focus:ring-2 focus:ring-indigo-500 outline-none">
+                            <input type="text" id="u-name" placeholder="Nome Completo" class="w-full bg-gray-50 rounded-xl p-3 border-0 focus:ring-2 focus:ring-indigo-500 outline-none">
+                            <input type="password" id="u-pass" placeholder="Senha" class="w-full bg-gray-50 rounded-xl p-3 border-0 focus:ring-2 focus:ring-indigo-500 outline-none">
+                            <select id="u-role" class="w-full bg-gray-50 rounded-xl p-3 border-0 focus:ring-2 focus:ring-indigo-500 outline-none">
                                 <option value="Visitante">Visitante</option>
-
                                 <option value="Cadastrador">Cadastrador</option>
-
                                 <option value="Principal">Principal</option>
-
                                 <option value="Administrador">Administrador</option>
-
                             </select>
-
-                            <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold">Criar Acesso</button>
-
+                            <button type="submit" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold shadow-lg">Criar Acesso</button>
                         </form>
-
                     </div>
-
-                    <div class="card bg-white p-6 rounded-2xl">
-
-                        <h3 class="font-bold mb-4 text-gray-700">Lista de Acessos</h3>
-
-                        <div id="users-list" class="max-h-[300px] overflow-y-auto"></div>
-
+                    <div class="card bg-white p-8 rounded-3xl">
+                        <h3 class="font-bold text-gray-700 mb-6">Lista de Acessos</h3>
+                        <div id="users-list" class="max-h-[400px] overflow-y-auto"></div>
                     </div>
-
                 </div>
-
             </div>
-
         </div>
-
     </div>
-
- 
 
     <!-- MODAIS -->
-
     <div id="export-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
-
-        <div class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
-
-            <h3 class="font-bold text-lg mb-4">Exportar PDF</h3>
-
-            <div class="space-y-3">
-
-                <select id="exp-filter" class="w-full border p-2 rounded-lg"><option value="Ambos">Ambos</option><option value="Mandato">Mandato</option><option value="Campanha">Campanha</option></select>
-
-                <input type="date" id="exp-start" class="w-full border p-2 rounded-lg">
-
-                <input type="date" id="exp-end" class="w-full border p-2 rounded-lg">
-
-                <button onclick="window.exportPDFTable()" class="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl mt-4">Gerar Tabela</button>
-
-                <button onclick="document.getElementById('export-modal').classList.add('hidden')" class="w-full py-2 text-gray-500 text-sm">Cancelar</button>
-
+        <div class="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl">
+            <h3 class="font-bold text-lg mb-6 text-gray-800">Exportar para PDF</h3>
+            <div class="space-y-4">
+                <div><label class="text-[10px] font-bold text-gray-400 uppercase">Filtrar Atividade</label><select id="exp-filter" class="w-full border rounded-xl p-3 mt-1"><option value="Ambos">Ambos</option><option value="Mandato">Mandato</option><option value="Campanha">Campanha</option></select></div>
+                <div><label class="text-[10px] font-bold text-gray-400 uppercase">Data Início</label><input type="date" id="exp-start" class="w-full border rounded-xl p-3 mt-1"></div>
+                <div><label class="text-[10px] font-bold text-gray-400 uppercase">Data Fim</label><input type="date" id="exp-end" class="w-full border rounded-xl p-3 mt-1"></div>
+                <div class="flex flex-col space-y-2 pt-4">
+                    <button onclick="window.exportPDFTable()" class="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl shadow-xl">Visualizar Tabela</button>
+                    <button onclick="document.getElementById('export-modal').classList.add('hidden')" class="w-full py-2 text-gray-500 text-xs font-bold">Cancelar</button>
+                </div>
             </div>
-
         </div>
-
     </div>
 
- 
-
     <div id="import-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 hidden z-50">
-
-        <div class="bg-white rounded-xl p-6 w-full max-w-sm shadow-2xl text-center">
-
-            <h3 class="font-bold mb-4 text-gray-800">Importar Planilha</h3>
-
-            <div class="bg-gray-50 p-4 rounded-xl border border-dashed border-gray-300 mb-4">
-
-                <input type="file" id="import-file-input" accept=".xlsx, .xls" class="text-xs">
-
+        <div class="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl text-center">
+            <h3 class="font-bold mb-4 text-gray-800">Importar do Excel</h3>
+            <div class="bg-gray-50 p-6 rounded-2xl border-2 border-dashed border-gray-300 mb-6">
+                <input type="file" id="import-file" accept=".xlsx, .xls" class="text-xs w-full">
             </div>
-
-            <button id="start-import-btn" class="w-full py-2.5 bg-purple-600 text-white font-bold rounded-xl hidden">Processar</button>
-
-            <button onclick="document.getElementById('import-modal').classList.add('hidden')" class="w-full mt-2 text-xs text-gray-500">Fechar</button>
-
+            <button onclick="document.getElementById('import-modal').classList.add('hidden')" class="w-full py-2 text-gray-400 text-xs font-bold uppercase">Fechar</button>
         </div>
-
     </div>
 
 </body>
-
 </html>
