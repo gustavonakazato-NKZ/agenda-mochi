@@ -36,21 +36,24 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, addDoc, setDoc, getDoc, getDocs, onSnapshot, collection, query, where, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
-        // ID para organização dos dados no banco
-        const appId = 'agenda-mochi-producao';
+        // Chave vazia para uso interno do ambiente conforme instruções
+        const apiKey = "";
+        
+        // Detecta se está no ambiente do Canvas ou no GitHub Pages
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'agenda-mochi-producao';
 
-        // =========================================================
-        // CONFIGURAÇÃO EXTRAÍDA DA SUA IMAGEM
-        // =========================================================
-        const firebaseConfig = {
-            apiKey: "AIzaSyA2XQWbB3nwkvGD6estEub9xkQPjvzxzXE",
-            authDomain: "banco-dados-agenda.firebaseapp.com",
-            projectId: "banco-dados-agenda",
-            storageBucket: "banco-dados-agenda.firebasestorage.app",
-            messagingSenderId: "652360130180",
-            appId: "1:652360130180:web:9cf98606920f9284b72cd1"
-        };
-        // =========================================================
+        // Configuração híbrida: Prioriza a configuração injetada pelo ambiente (Canvas)
+        // e usa a sua configuração pessoal como fallback (GitHub)
+        const firebaseConfig = typeof __firebase_config !== 'undefined' 
+            ? JSON.parse(__firebase_config) 
+            : {
+                apiKey: "AIzaSyA2XQWbB3nwkvGD6estEub9xkQPjvzxzXE",
+                authDomain: "banco-dados-agenda.firebaseapp.com",
+                projectId: "banco-dados-agenda",
+                storageBucket: "banco-dados-agenda.firebasestorage.app",
+                messagingSenderId: "652360130180",
+                appId: "1:652360130180:web:9cf98606920f9284b72cd1"
+            };
 
         let db, auth, currentUserData = null;
         let appointments = [];
@@ -71,11 +74,18 @@
             
             const initAuth = async () => {
                 try {
-                    await signInAnonymously(auth);
+                    // Regra de Ouro: Tentar autenticação com token customizado primeiro se disponível no Canvas
+                    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
                     isFirebaseConnected = true;
                     console.log("Firebase conectado com sucesso!");
                 } catch (err) {
                     console.error("Erro na conexão:", err);
+                    // Não mostra alert aqui para não travar a UI no carregamento
                 }
             };
             initAuth();
@@ -88,36 +98,38 @@
             if(e) e.preventDefault();
             
             if (!isFirebaseConnected) {
-                return alert("Aguarde a conexão com o banco de dados...");
+                return alert("Aguarde a conexão com o banco de dados. Se o erro persistir, verifique suas chaves no código.");
             }
 
             const cpf = document.getElementById('login-cpf').value.replace(/\D/g, '');
             const pass = document.getElementById('login-pass').value;
 
-            if (!cpf || !pass) return alert("Preencha CPF e Senha.");
+            if (!cpf || !pass) return alert("Por favor, preencha o CPF e a Senha.");
 
             try {
+                // Tenta buscar o usuário na coleção pública
                 const userDoc = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpf));
                 
                 if (userDoc.exists() && userDoc.data().password === pass) {
                     currentUserData = userDoc.data();
                     enterApp();
                 } else {
+                    // Lógica de Login Mestre (apenas se o banco estiver vazio)
                     if (cpf === '00000000000' && pass === 'admin123') {
                         const usersSnap = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'users'));
                         if (usersSnap.empty) {
                             currentUserData = { cpf: '00000000000', name: 'Administrador Inicial', role: 'Administrador' };
                             enterApp();
                         } else {
-                            alert("Acesso mestre desativado.");
+                            alert("O acesso de emergência foi desativado automaticamente porque já existem usuários cadastrados.");
                         }
                     } else {
-                        alert("Dados incorretos.");
+                        alert("CPF ou Senha incorretos.");
                     }
                 }
             } catch (err) { 
                 console.error(err);
-                alert("Erro ao conectar ao banco. Verifique as Regras no Firebase Console."); 
+                alert("Erro ao conectar ao banco. Verifique as Regras de Segurança (Step 5) no seu Console do Firebase."); 
             }
         };
 
@@ -145,14 +157,14 @@
                 appointments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 appointments.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
                 renderAppointments();
-            });
+            }, (err) => console.error("Erro no listener de compromissos:", err));
 
             if (currentUserData.role === 'Administrador') {
                 const qUser = query(collection(db, 'artifacts', appId, 'public', 'data', 'users'));
                 onSnapshot(qUser, (snapshot) => {
                     users = snapshot.docs.map(doc => doc.data());
                     renderUsers();
-                });
+                }, (err) => console.error("Erro no listener de usuários:", err));
             }
         };
 
@@ -321,7 +333,6 @@
             document.getElementById('app-date').value = app.date;
             document.getElementById('app-time').value = app.time;
             document.getElementById('app-details').value = app.details;
-            document.getElementById('app-contact').value = app.contact || '';
             document.getElementById('app-activity').value = app.activity_type || 'Mandato';
             document.getElementById('app-press').value = app.press_coverage || 'Não Acompanhar';
             document.getElementById('app-location').value = app.location || '';
