@@ -36,21 +36,21 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, addDoc, setDoc, getDoc, getDocs, onSnapshot, collection, query, where, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
-        const apiKey = "";
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'agenda-dep-mochi-prod';
-        
-        // Se estiver no GitHub, __firebase_config será undefined. 
-        // Para funcionar lá, você deve substituir o {} abaixo pelas suas credenciais do Firebase Console.
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-            /* ATENÇÃO: Para funcionar no seu GitHub pessoal, você deve criar um projeto no Firebase 
-               e colar as credenciais aqui. Exemplo:
-               apiKey: "AIza...",
-               authDomain: "seu-projeto.firebaseapp.com",
-               projectId: "seu-projeto",
-               ...
-            */
+        // ID para organização dos dados no banco
+        const appId = 'agenda-mochi-producao';
+
+        // =========================================================
+        // CONFIGURAÇÃO EXTRAÍDA DA SUA IMAGEM
+        // =========================================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyA2XQWbB3nwkvGD6estEub9xkQPjvzxzXE",
+            authDomain: "banco-dados-agenda.firebaseapp.com",
+            projectId: "banco-dados-agenda",
+            storageBucket: "banco-dados-agenda.firebasestorage.app",
+            messagingSenderId: "652360130180",
+            appId: "1:652360130180:web:9cf98606920f9284b72cd1"
         };
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        // =========================================================
 
         let db, auth, currentUserData = null;
         let appointments = [];
@@ -65,29 +65,22 @@
 
         // Inicialização do Firebase
         try {
-            if (!firebaseConfig.projectId && !typeof __firebase_config !== 'undefined') {
-                console.warn("Configuração do Firebase ausente. O sistema funcionará apenas no modo de visualização local.");
-            }
             const app = initializeApp(firebaseConfig);
             db = getFirestore(app);
             auth = getAuth(app);
             
             const initAuth = async () => {
                 try {
-                    if (initialAuthToken) {
-                        await signInWithCustomToken(auth, initialAuthToken);
-                    } else {
-                        await signInAnonymously(auth);
-                    }
+                    await signInAnonymously(auth);
                     isFirebaseConnected = true;
-                    console.log("Conectado ao Firebase com sucesso.");
+                    console.log("Firebase conectado com sucesso!");
                 } catch (err) {
-                    console.error("Erro na autenticação inicial:", err);
+                    console.error("Erro na conexão:", err);
                 }
             };
             initAuth();
         } catch (e) { 
-            console.error("Erro ao inicializar Firebase:", e); 
+            console.error("Erro Firebase:", e); 
         }
 
         // --- SISTEMA DE LOGIN ---
@@ -95,43 +88,36 @@
             if(e) e.preventDefault();
             
             if (!isFirebaseConnected) {
-                return alert("O sistema ainda está tentando conectar ao banco de dados. Verifique se as credenciais do Firebase estão configuradas no código.");
+                return alert("Aguarde a conexão com o banco de dados...");
             }
 
             const cpf = document.getElementById('login-cpf').value.replace(/\D/g, '');
             const pass = document.getElementById('login-pass').value;
 
-            if (!cpf || !pass) return alert("Por favor, preencha o CPF e a Senha.");
+            if (!cpf || !pass) return alert("Preencha CPF e Senha.");
 
             try {
-                // Regra 3: Só consultar se houver um usuário autenticado no Firebase (mesmo que anônimo)
-                if (!auth.currentUser) {
-                    await signInAnonymously(auth);
-                }
-
-                // Busca o usuário na coleção pública
                 const userDoc = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpf));
                 
                 if (userDoc.exists() && userDoc.data().password === pass) {
                     currentUserData = userDoc.data();
                     enterApp();
                 } else {
-                    // Lógica de Login Mestre
                     if (cpf === '00000000000' && pass === 'admin123') {
                         const usersSnap = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'users'));
                         if (usersSnap.empty) {
                             currentUserData = { cpf: '00000000000', name: 'Administrador Inicial', role: 'Administrador' };
                             enterApp();
                         } else {
-                            alert("Acesso de emergência desativado. Use uma conta cadastrada.");
+                            alert("Acesso mestre desativado.");
                         }
                     } else {
-                        alert("CPF ou Senha incorretos.");
+                        alert("Dados incorretos.");
                     }
                 }
             } catch (err) { 
-                console.error("Erro de login:", err);
-                alert("Erro ao conectar ao banco de dados. Verifique se o seu projeto Firebase está ativo e as regras de segurança permitem acesso."); 
+                console.error(err);
+                alert("Erro ao conectar ao banco. Verifique as Regras no Firebase Console."); 
             }
         };
 
@@ -154,21 +140,19 @@
         };
 
         const startDataListeners = () => {
-            if (!auth.currentUser) return;
-            
             const qApp = query(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'));
             onSnapshot(qApp, (snapshot) => {
                 appointments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 appointments.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
                 renderAppointments();
-            }, (err) => console.error("Erro ao ouvir compromissos:", err));
+            });
 
             if (currentUserData.role === 'Administrador') {
                 const qUser = query(collection(db, 'artifacts', appId, 'public', 'data', 'users'));
                 onSnapshot(qUser, (snapshot) => {
                     users = snapshot.docs.map(doc => doc.data());
                     renderUsers();
-                }, (err) => console.error("Erro ao ouvir usuários:", err));
+                });
             }
         };
 
@@ -215,7 +199,7 @@
                                 <div><span class="font-semibold">Local:</span> ${app.location || '-'}</div>
                                 <div><span class="font-semibold">Atividade:</span> ${app.activity_type || 'Mandato'}</div>
                                 <div><span class="font-semibold">Contato:</span> ${app.contact || '-'}</div>
-                                <div><span class="font-semibold">Imprensa:</span> ${app.press_coverage === 'Acompanhar' ? '<u class="font-bold">Acompanhar</u>' : 'Não Acompanhar'}</div>
+                                <div><span class="font-semibold">Imprensa:</span> ${app.press_coverage === 'Acompanhar' ? '<u class="font-bold text-indigo-700">Acompanhar</u>' : 'Não'}</div>
                             </div>
                             ${!isAuth ? '<div class="mt-2 inline-block px-2 py-0.5 bg-yellow-500 text-white text-[10px] font-bold rounded">AGUARDANDO AUTORIZAÇÃO</div>' : ''}
                         </div>
@@ -235,11 +219,8 @@
 
         window.saveAppointment = async (e) => {
             e.preventDefault();
-            if (!auth.currentUser) return alert("Sessão expirada. Recarregue a página.");
-            
             const id = document.getElementById('app-id').value;
             const isPrivileged = ['Administrador', 'Principal'].includes(currentUserData.role);
-
             const data = {
                 date: document.getElementById('app-date').value,
                 time: document.getElementById('app-time').value,
@@ -251,15 +232,13 @@
                 status: document.getElementById('app-status').checked ? 'Acontecendo' : '',
                 authorized: isPrivileged ? true : false
             };
-
             try {
                 const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'appointments');
                 if (id) await setDoc(doc(colRef, id), data, { merge: true });
                 else await addDoc(colRef, data);
-                
-                alert("Compromisso salvo!");
+                alert("Salvo com sucesso!");
                 resetAppForm();
-            } catch (err) { alert("Erro ao salvar."); }
+            } catch (err) { alert("Erro ao salvar dados."); }
         };
 
         window.toggleAuth = async (id, status) => {
@@ -272,9 +251,7 @@
             const name = document.getElementById('u-name').value;
             const pass = document.getElementById('u-pass').value;
             const role = document.getElementById('u-role').value;
-
             if(!cpf || !name || !pass) return alert("Preencha todos os campos.");
-
             await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpf), { cpf, name, password: pass, role });
             alert("Usuário criado!");
             document.getElementById('user-form').reset();
@@ -302,30 +279,21 @@
             const filter = document.getElementById('exp-filter').value;
             let filtered = appointments.filter(a => a.authorized === true && a.date >= start && a.date <= end);
             if (filter !== 'Ambos') filtered = filtered.filter(a => (a.activity_type || 'Mandato') === filter);
-
-            if (!filtered.length) return alert("Nada autorizado para este período.");
-
-            let html = `<div class="print-container"><h1 style="text-align:center">Agenda - Deputado Junior Mochi</h1>`;
+            if (!filtered.length) return alert("Nada autorizado encontrado.");
+            let html = `<div style="padding:20px;font-family:sans-serif"><h1 style="text-align:center">Agenda - Deputado Junior Mochi</h1>`;
             const grouped = {};
-            filtered.forEach(app => {
-                if (!grouped[app.date]) grouped[app.date] = [];
-                grouped[app.date].push(app);
-            });
-
+            filtered.forEach(app => { if (!grouped[app.date]) grouped[app.date] = []; grouped[app.date].push(app); });
             Object.keys(grouped).sort().forEach(date => {
-                html += `<div class="date-header">DATA: ${date.split('-').reverse().join('/')}</div>
-                         <table><thead><tr><th>Horário - Atividade</th><th>Compromisso</th><th>Imprensa</th><th>Local</th></tr></thead><tbody>`;
+                html += `<div style="background:#eee;padding:5px;font-weight:bold;margin-top:15px;border:1px solid #000">DATA: ${date.split('-').reverse().join('/')}</div>
+                         <table style="width:100%;border-collapse:collapse"><thead><tr style="background:#f3f4f6"><th style="border:1px solid #000;padding:6px">Horário - Tipo</th><th style="border:1px solid #000;padding:6px">Compromisso</th><th style="border:1px solid #000;padding:6px">Imprensa</th><th style="border:1px solid #000;padding:6px">Local</th></tr></thead><tbody>`;
                 grouped[date].forEach(app => {
-                    const isRed = app.status === 'Acontecendo' ? 'red-text' : '';
-                    html += `<tr class="${isRed}"><td>${app.time} - ${app.activity_type || 'Mandato'}</td><td>${app.details}</td><td>${app.press_coverage}</td><td>${app.location || '-'}</td></tr>`;
+                    const isRed = app.status === 'Acontecendo' ? 'color:red;font-weight:bold' : '';
+                    html += `<tr style="${isRed}"><td style="border:1px solid #000;padding:6px">${app.time} - ${app.activity_type || 'Mandato'}</td><td style="border:1px solid #000;padding:6px">${app.details}</td><td style="border:1px solid #000;padding:6px">${app.press_coverage}</td><td style="border:1px solid #000;padding:6px">${app.location || '-'}</td></tr>`;
                 });
                 html += `</tbody></table>`;
             });
-            
             const win = window.open('', '_blank');
-            win.document.write(`<html><head><style>${document.querySelector('style').innerHTML}</style></head><body>${html}</body></html>`);
-            win.document.close();
-            win.print();
+            win.document.write(html); win.document.close(); win.print();
         };
 
         const switchTab = (tab) => {
@@ -353,7 +321,9 @@
             document.getElementById('app-date').value = app.date;
             document.getElementById('app-time').value = app.time;
             document.getElementById('app-details').value = app.details;
+            document.getElementById('app-contact').value = app.contact || '';
             document.getElementById('app-activity').value = app.activity_type || 'Mandato';
+            document.getElementById('app-press').value = app.press_coverage || 'Não Acompanhar';
             document.getElementById('app-location').value = app.location || '';
             document.getElementById('app-status').checked = app.status === 'Acontecendo';
         };
@@ -381,7 +351,7 @@
                 <input type="password" id="login-pass" class="w-full bg-gray-50 rounded-2xl p-4 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Senha">
                 <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl shadow-xl hover:bg-indigo-700 transition">Entrar</button>
             </form>
-            <p class="text-[9px] text-gray-400 mt-8 uppercase">Acesso Mestre: 00000000000 / admin123</p>
+            <p class="text-[9px] text-gray-400 mt-8 uppercase font-bold tracking-tighter">Acesso Mestre: 00000000000 / admin123</p>
         </div>
     </div>
 
@@ -473,7 +443,7 @@
     </div>
 
     <div id="import-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 hidden z-50">
-        <div class="bg-white rounded-3xl p-8 w-full max-w-sm text-center shadow-2xl">
+        <div class="bg-white rounded-[2.5rem] p-10 w-full max-w-sm text-center shadow-2xl">
             <h3 class="font-bold mb-4">Importar do Excel</h3>
             <input type="file" id="import-file" accept=".xlsx, .xls" class="mb-6 text-xs w-full">
             <button onclick="document.getElementById('import-modal').classList.add('hidden')" class="w-full py-2 text-gray-400 text-xs font-bold">Fechar</button>
