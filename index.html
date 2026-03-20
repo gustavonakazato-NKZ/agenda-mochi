@@ -17,11 +17,11 @@
         /* Ajustes Mobile */
         @media (max-width: 640px) {
             .input-group { grid-template-columns: 1fr !important; }
-            .btn-mobile-full { width: 100% !important; margin-bottom: 0.5rem; }
-            h1 { font-size: 1.5rem !important; }
-            .tab-btn { font-size: 0.75rem !important; padding: 0.75rem 0.25rem !important; }
+            h1 { font-size: 1.25rem !important; }
+            .tab-btn { font-size: 0.7rem !important; padding: 0.75rem 0.2rem !important; }
             .card-appointment { flex-direction: column !important; }
-            .time-display { width: 100% !important; margin-bottom: 0.5rem; font-size: 1.8rem !important; }
+            .time-display { width: 100% !important; margin-bottom: 0.5rem; font-size: 1.5rem !important; }
+            .search-container { flex-direction: column !important; }
         }
 
         @media print {
@@ -32,8 +32,6 @@
             th, td { border: 1px solid #000; padding: 6px; text-align: left; font-size: 8.5pt; word-wrap: break-word; }
             th { background-color: #f3f4f6; }
             .date-header { background-color: #eee; border: 1px solid #000; padding: 4px 8px; font-weight: bold; margin-top: 15px; }
-            .red-text { color: red !important; font-weight: bold; }
-            .green-text { color: #064e3b !important; font-weight: bold; }
         }
     </style>
     <script type="module">
@@ -41,25 +39,23 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, addDoc, setDoc, getDoc, getDocs, onSnapshot, collection, query, where, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
-        const apiKey = "";
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'agenda-mochi-producao';
 
-        const firebaseConfig = typeof __firebase_config !== 'undefined' 
-            ? JSON.parse(__firebase_config) 
-            : {
-                apiKey: "AIzaSyA2XQWBb3NwkvGD6estEub9xkQPjvzxzXE",
-                authDomain: "banco-dados-agenda.firebaseapp.com",
-                projectId: "banco-dados-agenda",
-                storageBucket: "banco-dados-agenda.firebasestorage.app",
-                messagingSenderId: "652360130180",
-                appId: "1:652360130180:web:9cf98606920f9284b72cd1"
-            };
+        // Preservando suas configurações de conexão
+        const firebaseConfig = {
+            apiKey: "AIzaSyA2XQWBb3NwkvGD6estEub9xkQPjvzxzXE",
+            authDomain: "banco-dados-agenda.firebaseapp.com",
+            projectId: "banco-dados-agenda",
+            storageBucket: "banco-dados-agenda.firebasestorage.app",
+            messagingSenderId: "652360130180",
+            appId: "1:652360130180:web:9cf98606920f9284b72cd1"
+        };
 
         let db, auth, currentUserData = null;
         let appointments = [];
         let users = [];
         let isFirebaseConnected = false;
-        let selectedUserCpf = null;
+        let editingUserCpf = null;
         const logoUrl = "https://lh3.googleusercontent.com/d/1qpnoVc0Qy2Y3i9CMxjS0reoQTrhiP2b4";
 
         try {
@@ -73,23 +69,27 @@
                     if (initialAuthToken) await signInWithCustomToken(auth, initialAuthToken);
                     else await signInAnonymously(auth);
                     isFirebaseConnected = true;
-                } catch (err) { console.error("Erro Firebase:", err); }
+                    console.log("Firebase conectado.");
+                } catch (err) { console.error("Erro na conexão:", err); }
             };
             initAuth();
         } catch (e) { console.error(e); }
 
+        // --- SISTEMA DE LOGIN ---
         window.handleLogin = async (e) => {
             if(e) e.preventDefault();
-            if (!isFirebaseConnected) return alert("Conectando ao banco...");
+            if (!isFirebaseConnected) return alert("Conectando ao banco de dados...");
 
             const cpf = document.getElementById('login-cpf').value.replace(/\D/g, '');
             const pass = document.getElementById('login-pass').value;
+
+            if (!cpf || !pass) return alert("Preencha CPF e Senha.");
 
             try {
                 const userDoc = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpf));
                 if (userDoc.exists()) {
                     const ud = userDoc.data();
-                    if (ud.status === 'Suspenso') return alert("Acesso suspenso pelo administrador.");
+                    if (ud.status === 'Suspenso') return alert("Acesso suspenso. Procure o administrador.");
                     if (ud.password === pass) {
                         currentUserData = ud;
                         enterApp();
@@ -102,8 +102,8 @@
                     if (usersSnap.empty) {
                         currentUserData = { cpf: '00000000000', name: 'Administrador Inicial', role: 'Administrador', status: 'Ativo' };
                         enterApp();
-                    } else alert("Acesso mestre bloqueado.");
-                } else alert("CPF ou Senha incorretos.");
+                    } else alert("Acesso mestre desativado.");
+                } else alert("Dados incorretos.");
             } catch (err) { alert("Erro de conexão."); }
         };
 
@@ -131,28 +131,48 @@
             }
         };
 
+        // --- AGENDA E BUSCA ---
         const renderAppointments = () => {
             const container = document.getElementById('appointments-list');
             container.innerHTML = '';
+            
             const filter = document.getElementById('list-filter').value;
-            const today = new Date().toISOString().split('T')[0];
+            const searchText = document.getElementById('search-input').value.toLowerCase();
+            const searchDate = document.getElementById('search-date').value;
+            const todayStr = new Date().toISOString().split('T')[0];
 
             let filtered = appointments.filter(app => {
-                if (currentUserData.role === 'Visitante') return app.authorized === true && app.date >= today;
-                return filter === 'Ambos' || app.activity_type === filter;
-            }).sort((a,b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+                if (currentUserData.role === 'Visitante' && (!app.authorized || app.date < todayStr)) return false;
+                if (filter !== 'Ambos' && app.activity_type !== filter) return false;
+                if (searchDate && app.date !== searchDate) return false;
+                if (searchText) {
+                    const content = `${app.details} ${app.location} ${app.contact}`.toLowerCase();
+                    if (!content.includes(searchText)) return false;
+                }
+                return true;
+            });
+
+            // Ordenação: Hoje primeiro, depois futuro para passado
+            filtered.sort((a, b) => {
+                if (a.date === todayStr && b.date !== todayStr) return -1;
+                if (b.date === todayStr && a.date !== todayStr) return 1;
+                if (a.date !== b.date) return b.date.localeCompare(a.date);
+                return a.time.localeCompare(b.time);
+            });
 
             let currentDay = '';
             filtered.forEach(app => {
                 if (app.date !== currentDay) {
                     const h = document.createElement('h2');
-                    h.className = 'text-lg font-bold mt-6 mb-2 border-b border-indigo-200 text-indigo-700 px-2';
-                    h.textContent = app.date.split('-').reverse().join('/');
+                    const isToday = app.date === todayStr;
+                    h.className = `text-lg font-bold mt-6 mb-2 border-b px-2 flex justify-between items-center ${isToday ? 'border-green-500 text-green-700 bg-green-50 rounded-t-lg' : 'border-indigo-200 text-indigo-700'}`;
+                    h.innerHTML = `<span>${app.date.split('-').reverse().join('/')}</span> ${isToday ? '<span class="text-[10px] bg-green-500 text-white px-2 py-0.5 rounded-full uppercase">Hoje</span>' : ''}`;
                     container.appendChild(h);
                     currentDay = app.date;
                 }
+                
                 const isHap = app.status === 'Acontecendo';
-                const isAuth = app.authorized === true;
+                const isAuth = app.authorized === true || app.authorized === "true";
                 const canManage = ['Administrador', 'Principal'].includes(currentUserData.role);
                 
                 const card = document.createElement('div');
@@ -162,14 +182,13 @@
                     <div class="flex-grow">
                         <p class="font-bold text-gray-800 text-lg sm:text-base">${app.details}</p>
                         <div class="text-sm text-gray-500 mt-1 space-y-1">
-                            <div><b>Local:</b> ${app.location || '-'}</div>
-                            <div class="flex flex-wrap gap-x-4">
-                                <span><b>Atividade:</b> ${app.activity_type}</span>
-                                <span><b>Contato:</b> ${app.contact || '-'}</span>
+                            <div><b>Local:</b> ${app.location || '-'} | <b>Contato:</b> ${app.contact || '-'}</div>
+                            <div class="flex gap-4">
+                                <span class="text-[10px] font-bold uppercase text-indigo-400">${app.activity_type}</span>
+                                ${app.press_coverage === 'Acompanhar' ? '<span class="text-[10px] font-bold text-indigo-700 underline">Imprensa</span>' : ''}
                             </div>
-                            ${app.press_coverage === 'Acompanhar' ? '<div class="text-indigo-700 font-bold underline">Imprensa Acompanha</div>' : ''}
                         </div>
-                        ${!isAuth ? '<div class="mt-2 inline-block px-2 py-0.5 bg-yellow-500 text-white text-[10px] font-bold rounded">AGUARDANDO AUTORIZAÇÃO</div>' : ''}
+                        ${!isAuth ? '<div class="mt-2 text-[10px] font-bold text-yellow-600 uppercase italic">Aguardando Autorização</div>' : ''}
                     </div>
                     <div class="flex sm:flex-col gap-2 ml-2 justify-end">
                         ${canManage ? `<button onclick="window.toggleAuth('${app.id}', ${!isAuth})" class="p-2 bg-gray-100 rounded-lg">${isAuth ? '🔓' : '✅'}</button>` : ''}
@@ -180,35 +199,14 @@
                     </div>`;
                 container.appendChild(card);
             });
-        };
-
-        window.saveAppointment = async (e) => {
-            e.preventDefault();
-            const id = document.getElementById('app-id').value;
-            const isPrivileged = ['Administrador', 'Principal'].includes(currentUserData.role);
-            const data = {
-                date: document.getElementById('app-date').value,
-                time: document.getElementById('app-time').value,
-                details: document.getElementById('app-details').value,
-                contact: document.getElementById('app-contact').value,
-                activity_type: document.getElementById('app-activity').value,
-                press_coverage: document.getElementById('app-press').value,
-                location: document.getElementById('app-location').value,
-                status: document.getElementById('app-status').checked ? 'Acontecendo' : '',
-                authorized: id ? (appointments.find(a => a.id === id).authorized) : isPrivileged
-            };
-            const col = collection(db, 'artifacts', appId, 'public', 'data', 'appointments');
-            id ? await setDoc(doc(col, id), data, {merge:true}) : await addDoc(col, data);
-            alert("Compromisso salvo!");
-            resetAppForm();
+            if (!filtered.length) container.innerHTML = '<p class="text-center py-10 text-gray-400">Nenhum evento encontrado.</p>';
         };
 
         // --- GESTÃO DE USUÁRIOS ---
         window.saveUser = async (e) => {
             e.preventDefault();
             const cpf = document.getElementById('u-cpf').value.replace(/\D/g, '');
-            if (!cpf) return alert("CPF é obrigatório.");
-            
+            if(!cpf) return alert("CPF obrigatório");
             const data = {
                 cpf,
                 name: document.getElementById('u-name').value,
@@ -216,22 +214,17 @@
                 role: document.getElementById('u-role').value,
                 status: document.getElementById('u-status').value
             };
-            
-            try {
-                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpf), data);
-                alert(selectedUserCpf ? "Usuário atualizado com sucesso!" : "Novo usuário cadastrado!");
-                window.resetUserForm();
-            } catch (err) { alert("Erro ao gerenciar usuário."); }
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpf), data);
+            alert("Usuário salvo com sucesso!");
+            window.resetUserForm();
         };
 
         window.resetUserForm = () => {
             document.getElementById('user-form').reset();
             document.getElementById('u-cpf').disabled = false;
-            document.getElementById('u-title').textContent = "Cadastrar Novo Usuário";
-            document.getElementById('u-btn').textContent = "CRIAR ACESSO AGORA";
-            document.getElementById('u-btn').classList.replace('bg-green-600', 'bg-indigo-600');
-            selectedUserCpf = null;
-            renderUsers();
+            document.getElementById('u-title').textContent = "Cadastrar Novo Acesso";
+            document.getElementById('u-btn').textContent = "CRIAR ACESSO";
+            editingUserCpf = null;
         };
 
         const renderUsers = () => {
@@ -239,67 +232,61 @@
             list.innerHTML = '';
             users.forEach(u => {
                 const isSusp = u.status === 'Suspenso';
-                const isSelected = selectedUserCpf === u.cpf;
                 const div = document.createElement('div');
-                div.className = `p-4 rounded-xl border mb-2 flex justify-between items-center cursor-pointer transition ${isSelected ? 'border-indigo-600 ring-2 ring-indigo-100 bg-indigo-50' : (isSusp ? 'bg-red-50 border-red-200' : 'bg-gray-50')}`;
+                div.className = `p-4 rounded-xl border mb-2 flex justify-between items-center cursor-pointer transition ${isSusp ? 'bg-red-50 border-red-200' : 'bg-gray-50'}`;
                 div.onclick = () => {
-                    selectedUserCpf = u.cpf;
+                    editingUserCpf = u.cpf;
                     document.getElementById('u-cpf').value = u.cpf;
                     document.getElementById('u-cpf').disabled = true;
                     document.getElementById('u-name').value = u.name;
                     document.getElementById('u-pass').value = u.password;
                     document.getElementById('u-role').value = u.role;
                     document.getElementById('u-status').value = u.status || 'Ativo';
-                    document.getElementById('u-title').textContent = "Editar Usuário";
+                    document.getElementById('u-title').textContent = "Editar Acesso";
                     document.getElementById('u-btn').textContent = "ATUALIZAR DADOS";
-                    document.getElementById('u-btn').classList.replace('bg-indigo-600', 'bg-green-600');
-                    renderUsers();
                 };
-                div.innerHTML = `
-                    <div class="flex-grow">
-                        <div class="font-bold text-gray-800">${u.name} ${isSusp ? '<span class="text-red-600 text-[10px] bg-red-100 px-1 rounded ml-1">SUSPENSO</span>' : ''}</div>
-                        <div class="text-xs text-gray-500">${u.role} | CPF: ${u.cpf}</div>
-                    </div>
-                    <div class="flex space-x-2">
-                        <button onclick="event.stopPropagation(); window.deleteUser('${u.cpf}')" class="p-2 text-red-400 hover:bg-red-100 rounded-lg">✕</button>
-                    </div>
-                `;
+                div.innerHTML = `<div><b>${u.name}</b> ${isSusp ? '<span class="text-red-600 text-[10px] font-bold">[SUSPENSO]</span>' : ''}<br><span class="text-xs text-gray-500">${u.role}</span></div>
+                                 <button onclick="event.stopPropagation(); window.deleteUser('${u.cpf}')" class="text-red-400">✕</button>`;
                 list.appendChild(div);
             });
         };
 
-        // --- EXPORTAÇÃO E IMPORTAÇÃO ---
+        // --- PDF E IMPORTAÇÃO ---
         window.exportPDFTable = () => {
             const start = document.getElementById('exp-start').value;
             const end = document.getElementById('exp-end').value;
-            if (!start || !end) return alert("Selecione as datas.");
+            
+            // Correção da lógica de filtro: Verifica boleano E string "true"
+            let filtered = appointments.filter(a => {
+                const isAuth = a.authorized === true || String(a.authorized) === "true";
+                const inRange = (!start || a.date >= start) && (!end || a.date <= end);
+                return isAuth && inRange;
+            });
 
-            let filtered = appointments.filter(a => a.authorized && a.date >= start && a.date <= end);
-            if (!filtered.length) return alert("Nada autorizado encontrado no período.");
+            if (!filtered.length) return alert("Não foram encontrados eventos autorizados para este período ou verifique as datas.");
             
             let html = `
                 <div class="print-container">
-                    <div class="pdf-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #4f46e5; padding-bottom:10px;">
+                    <div class="pdf-header">
                         <img src="${logoUrl}" style="height: 60px;">
                         <div style="text-align: right">
-                            <h1 style="margin:0; color:#4f46e5; font-size:18pt;">AGENDA OFICIAL</h1>
+                            <h1 style="margin:0; color:#4f46e5; font-size: 18pt;">AGENDA OFICIAL</h1>
                             <p style="margin:0">Deputado Junior Mochi</p>
                         </div>
-                    </div>
-            `;
-            
+                    </div>`;
             const grouped = {};
             filtered.forEach(app => { if(!grouped[app.date]) grouped[app.date] = []; grouped[app.date].push(app); });
-            Object.keys(grouped).sort().forEach(date => {
-                html += `<div style="background:#eee; padding:5px; font-weight:bold; margin-top:15px; border:1px solid #000;">DATA: ${date.split('-').reverse().join('/')}</div>
-                         <table style="width:100%; border-collapse:collapse;"><thead><tr style="background:#f3f4f6"><th style="border:1px solid #000;padding:6px;width:15%">Hora</th><th style="border:1px solid #000;padding:6px;width:45%">Compromisso</th><th style="border:1px solid #000;padding:6px;width:20%">Local</th><th style="border:1px solid #000;padding:6px;width:20%">Contato</th></tr></thead><tbody>`;
+            Object.keys(grouped).sort().reverse().forEach(date => {
+                html += `<div class="date-header">DATA: ${date.split('-').reverse().join('/')}</div>
+                         <table><thead><tr style="background:#f3f4f6"><th>Hora - Atividade</th><th>Compromisso</th><th>Local</th><th>Contato</th></tr></thead><tbody>`;
                 grouped[date].forEach(app => {
-                    html += `<tr><td style="border:1px solid #000;padding:6px">${app.time}</td><td style="border:1px solid #000;padding:6px">${app.details}</td><td style="border:1px solid #000;padding:6px">${app.location || '-'}</td><td style="border:1px solid #000;padding:6px">${app.contact || '-'}</td></tr>`;
+                    const isRed = app.status === 'Acontecendo' ? 'color:red; font-weight:bold' : '';
+                    html += `<tr style="${isRed}"><td>${app.time} - ${app.activity_type}</td><td>${app.details}</td><td>${app.location || '-'}</td><td>${app.contact || '-'}</td></tr>`;
                 });
                 html += `</tbody></table>`;
             });
             const win = window.open('', '_blank');
-            win.document.write(`<html><head><style>body{font-family:sans-serif;padding:20px}</style></head><body>${html}</body></html>`);
+            win.document.write(`<html><head><style>body{font-family:sans-serif;padding:20px} table{width:100%;border-collapse:collapse;margin-bottom:20px} th,td{border:1px solid #000;padding:6px;font-size:9pt} .date-header{background:#eee;padding:4px;font-weight:bold;border:1px solid #000}</style></head><body>${html}</body></html>`);
             win.document.close();
             setTimeout(() => win.print(), 500);
         };
@@ -308,27 +295,12 @@
             const file = e.target.files[0];
             const isAuth = document.getElementById('imp-auth').checked;
             const type = document.getElementById('imp-type').value;
-            
             const reader = new FileReader();
             reader.onload = async (evt) => {
-                const data = new Uint8Array(evt.target.result);
-                const workbook = XLSX.read(data, {type: 'array'});
-                const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
-                
+                const json = XLSX.utils.sheet_to_json(XLSX.read(new Uint8Array(evt.target.result), {type:'array'}).Sheets[0]);
                 const batch = writeBatch(db);
                 json.forEach(row => {
                     const newDoc = doc(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'));
-                    
-                    // Lógica para Imprensa: se a coluna "Imprensa" tiver algo como "Sim", "Acompanhar", etc
-                    let press = 'Não Acompanhar';
-                    const impVal = String(row.Imprensa || '').toLowerCase();
-                    if (['sim', 'acompanhar', 'ok', 'a', 'x'].includes(impVal)) press = 'Acompanhar';
-
-                    // Lógica para Status: se a coluna "Status" tiver "Acontecendo"
-                    let status = '';
-                    const statusVal = String(row.Status || '').toLowerCase();
-                    if (['acontecendo', 'agora', 'em curso'].includes(statusVal)) status = 'Acontecendo';
-
                     batch.set(newDoc, {
                         date: String(row.Data || ''),
                         time: String(row.Horario || '00:00'),
@@ -337,17 +309,18 @@
                         contact: String(row.Contato || ''),
                         activity_type: type,
                         authorized: isAuth,
-                        press_coverage: press,
-                        status: status
+                        press_coverage: String(row.Imprensa || '').toLowerCase().includes('sim') ? 'Acompanhar' : 'Não Acompanhar',
+                        status: String(row.Status || '').toLowerCase().includes('acontecendo') ? 'Acontecendo' : ''
                     });
                 });
                 await batch.commit();
-                alert("Importação concluída com sucesso!");
+                alert("Importado!");
                 document.getElementById('import-modal').classList.add('hidden');
             };
             reader.readAsArrayBuffer(file);
         };
 
+        // --- AUXILIARES ---
         const switchTab = (tab) => {
             ['form-view', 'list-view', 'admin-view'].forEach(v => document.getElementById(v).classList.add('hidden'));
             document.getElementById(tab + '-view').classList.remove('hidden');
@@ -367,6 +340,8 @@
             document.getElementById('tab-list-btn').onclick = () => switchTab('list');
             document.getElementById('tab-admin-btn').onclick = () => switchTab('admin');
             document.getElementById('list-filter').onchange = renderAppointments;
+            document.getElementById('search-input').oninput = renderAppointments;
+            document.getElementById('search-date').onchange = renderAppointments;
             document.getElementById('import-file').onchange = window.importExcel;
         };
 
@@ -379,14 +354,12 @@
             document.getElementById('app-time').value = a.time;
             document.getElementById('app-details').value = a.details;
             document.getElementById('app-activity').value = a.activity_type;
-            document.getElementById('app-press').value = a.press_coverage;
             document.getElementById('app-location').value = a.location || '';
             document.getElementById('app-contact').value = a.contact || '';
             document.getElementById('app-status').checked = a.status === 'Acontecendo';
         };
-        window.deleteApp = async (id) => confirm("Apagar compromisso?") && await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'appointments', id));
-        window.deleteUser = async (cpf) => confirm("Apagar usuário permanentemente?") && await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpf));
-
+        window.deleteApp = async (id) => confirm("Apagar?") && await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'appointments', id));
+        window.deleteUser = async (cpf) => confirm("Apagar usuário?") && await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpf));
     </script>
 </head>
 <body class="pb-20 sm:pb-10">
@@ -396,9 +369,9 @@
             <img src="https://lh3.googleusercontent.com/d/1qpnoVc0Qy2Y3i9CMxjS0reoQTrhiP2b4" alt="Logo" class="h-24 mx-auto mb-6 logo-glow">
             <h1 class="text-2xl font-black text-indigo-900 mb-6 uppercase tracking-tight">Agenda Mochi</h1>
             <form onsubmit="window.handleLogin(event)" class="space-y-4">
-                <input type="text" id="login-cpf" class="w-full bg-gray-50 rounded-2xl p-4 outline-none focus:ring-2 focus:ring-indigo-500" placeholder="CPF (apenas números)">
-                <input type="password" id="login-pass" class="w-full bg-gray-50 rounded-2xl p-4 outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Senha">
-                <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl shadow-xl active:scale-95 transition">ACESSAR SISTEMA</button>
+                <input type="text" id="login-cpf" class="w-full bg-gray-50 rounded-2xl p-4 outline-none focus:ring-2 focus:ring-indigo-500 border-0" placeholder="CPF">
+                <input type="password" id="login-pass" class="w-full bg-gray-50 rounded-2xl p-4 outline-none focus:ring-2 focus:ring-indigo-500 border-0" placeholder="Senha">
+                <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl shadow-xl active:scale-95 transition">ENTRAR</button>
             </form>
         </div>
     </div>
@@ -409,13 +382,13 @@
                 <div class="flex items-center space-x-3">
                     <img src="https://lh3.googleusercontent.com/d/1qpnoVc0Qy2Y3i9CMxjS0reoQTrhiP2b4" alt="Logo" class="h-12 logo-glow">
                     <div>
-                        <h1 class="text-2xl font-black text-indigo-900 leading-tight">Agenda Junior Mochi</h1>
+                        <h1 class="text-xl font-black text-indigo-900 leading-none">Agenda Junior Mochi</h1>
                         <p id="display-user-info" class="text-indigo-500 text-xs font-bold"></p>
                     </div>
                 </div>
                 <div class="flex w-full sm:w-auto gap-2">
                     <button id="import-btn" onclick="document.getElementById('import-modal').classList.remove('hidden')" class="flex-1 sm:flex-none px-4 py-2 bg-purple-600 text-white text-[10px] font-bold rounded-xl">IMPORTAR</button>
-                    <button onclick="document.getElementById('export-modal').classList.remove('hidden')" class="flex-1 sm:flex-none px-4 py-2 bg-green-600 text-white text-[10px] font-bold rounded-xl">GERAR PDF</button>
+                    <button onclick="document.getElementById('export-modal').classList.remove('hidden')" class="flex-1 sm:flex-none px-4 py-2 bg-green-600 text-white text-[10px] font-bold rounded-xl">PDF</button>
                     <button onclick="location.reload()" class="px-4 py-2 bg-gray-200 text-gray-600 text-[10px] font-bold rounded-xl">SAIR</button>
                 </div>
             </header>
@@ -426,32 +399,37 @@
                 <button id="tab-admin-btn" class="tab-btn flex-1 py-4 font-bold transition hidden">EQUIPE</button>
             </div>
 
+            <!-- CADASTRO -->
             <div id="form-view">
                 <div class="card bg-white p-6 rounded-3xl">
                     <form onsubmit="window.saveAppointment(event)" id="appointment-form" class="space-y-4">
                         <input type="hidden" id="app-id">
                         <div class="grid grid-cols-2 gap-4 input-group">
-                            <input type="date" id="app-date" required class="bg-gray-50 rounded-xl p-4 border-0 focus:ring-2 focus:ring-indigo-500 outline-none">
-                            <input type="time" id="app-time" required class="bg-gray-50 rounded-xl p-4 border-0 focus:ring-2 focus:ring-indigo-500 outline-none">
+                            <input type="date" id="app-date" required class="bg-gray-50 rounded-xl p-4 border-0 outline-none">
+                            <input type="time" id="app-time" required class="bg-gray-50 rounded-xl p-4 border-0 outline-none">
                         </div>
-                        <textarea id="app-details" rows="3" required class="w-full bg-gray-50 rounded-xl p-4 border-0 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="O que será feito?"></textarea>
+                        <textarea id="app-details" rows="3" required class="w-full bg-gray-50 rounded-xl p-4 border-0 outline-none" placeholder="O que será feito?"></textarea>
                         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                             <input type="text" id="app-contact" class="bg-gray-50 rounded-xl p-4 border-0" placeholder="Contato">
                             <select id="app-activity" class="bg-gray-50 rounded-xl p-4 border-0"><option value="Mandato">Mandato</option><option value="Campanha">Campanha</option></select>
-                            <select id="app-press" class="bg-gray-50 rounded-xl p-4 border-0"><option value="Não Acompanhar">Não Acompanhar</option><option value="Acompanhar">Imprensa Acompanha</option></select>
+                            <select id="app-press" class="bg-gray-50 rounded-xl p-4 border-0"><option value="Não Acompanhar">Imprensa: Não</option><option value="Acompanhar">Imprensa: Sim</option></select>
                         </div>
-                        <input type="text" id="app-location" class="w-full bg-gray-50 rounded-xl p-4 border-0" placeholder="Local do compromisso">
+                        <input type="text" id="app-location" class="w-full bg-gray-50 rounded-xl p-4 border-0" placeholder="Local">
                         <div class="flex items-center bg-red-50 p-4 rounded-2xl border border-red-100">
-                            <input type="checkbox" id="app-status" class="w-6 h-6 text-red-600 rounded">
-                            <label for="app-status" class="ml-3 font-bold text-red-600">ACONTECENDO AGORA</label>
+                            <input type="checkbox" id="app-status" class="w-6 h-6 text-red-600 rounded"><label class="ml-3 font-bold text-red-600">ACONTECENDO</label>
                         </div>
-                        <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl shadow-xl hover:bg-indigo-700">SALVAR REGISTRO</button>
+                        <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl">SALVAR REGISTRO</button>
                     </form>
                 </div>
             </div>
 
+            <!-- AGENDA COM BUSCA -->
             <div id="list-view" class="hidden">
-                <div class="mb-6 bg-white p-3 rounded-2xl border mx-2">
+                <div class="mb-6 bg-white p-4 rounded-2xl border mx-2 space-y-3">
+                    <div class="flex gap-2 search-container">
+                        <input type="text" id="search-input" placeholder="Buscar termo..." class="flex-grow bg-gray-50 rounded-xl p-3 text-sm border-0 outline-none">
+                        <input type="date" id="search-date" class="bg-gray-50 rounded-xl p-3 text-sm border-0 outline-none sm:w-40">
+                    </div>
                     <select id="list-filter" class="w-full text-sm font-bold text-gray-700 bg-transparent outline-none">
                         <option value="Ambos">TUDO (Mandato e Campanha)</option>
                         <option value="Mandato">APENAS MANDATO</option>
@@ -461,12 +439,13 @@
                 <div id="appointments-list"></div>
             </div>
 
+            <!-- ADMIN -->
             <div id="admin-view" class="hidden">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mx-2">
                     <div class="card bg-white p-6 rounded-3xl">
                         <div class="flex justify-between items-center mb-4">
-                            <h3 id="u-title" class="font-bold text-indigo-600 uppercase text-sm">Cadastrar Novo Usuário</h3>
-                            <button onclick="window.resetUserForm()" class="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-2 py-1 rounded">+ NOVO</button>
+                            <h3 id="u-title" class="font-bold text-indigo-600 uppercase text-sm">Novo Acesso</h3>
+                            <button onclick="window.resetUserForm()" class="text-[10px] bg-indigo-50 px-2 rounded">+ NOVO</button>
                         </div>
                         <form onsubmit="window.saveUser(event)" id="user-form" class="space-y-3">
                             <input type="text" id="u-cpf" placeholder="CPF" class="w-full bg-gray-50 rounded-xl p-4 border-0">
@@ -482,13 +461,12 @@
                                 <option value="Ativo">Status: Ativo</option>
                                 <option value="Suspenso">Status: Suspenso</option>
                             </select>
-                            <button type="submit" id="u-btn" class="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold transition">CRIAR ACESSO AGORA</button>
+                            <button type="submit" id="u-btn" class="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold">CRIAR ACESSO</button>
                         </form>
                     </div>
                     <div class="card bg-white p-6 rounded-3xl">
-                        <h3 class="font-bold text-gray-700 mb-4 uppercase text-sm">Lista de Usuários</h3>
-                        <p class="text-[10px] text-gray-400 mb-2 italic">Toque no nome para editar os dados</p>
-                        <div id="users-list" class="max-h-[400px] overflow-y-auto"></div>
+                        <h3 class="font-bold text-gray-700 mb-4 uppercase text-sm">Lista de Equipe</h3>
+                        <div id="users-list" class="max-h-[350px] overflow-y-auto"></div>
                     </div>
                 </div>
             </div>
@@ -498,11 +476,11 @@
     <!-- MODAIS -->
     <div id="export-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
         <div class="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
-            <h3 class="font-bold text-lg mb-6">Filtros do PDF</h3>
+            <h3 class="font-bold text-lg mb-6">Gerar PDF da Agenda</h3>
             <div class="space-y-4">
                 <input type="date" id="exp-start" class="w-full border rounded-xl p-4">
                 <input type="date" id="exp-end" class="w-full border rounded-xl p-4">
-                <button onclick="window.exportPDFTable()" class="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl shadow-lg">GERAR PDF</button>
+                <button onclick="window.exportPDFTable()" class="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl">VISUALIZAR AGORA</button>
                 <button onclick="document.getElementById('export-modal').classList.add('hidden')" class="w-full py-2 text-gray-400 font-bold text-xs uppercase">FECHAR</button>
             </div>
         </div>
@@ -514,11 +492,11 @@
             <div class="space-y-4 text-left mb-6">
                 <label class="flex items-center space-x-2 bg-gray-50 p-4 rounded-xl">
                     <input type="checkbox" id="imp-auth" checked class="w-6 h-6">
-                    <span class="text-sm font-bold">Importar como AUTORIZADO</span>
+                    <span class="text-sm font-bold">Marcar como AUTORIZADO</span>
                 </label>
                 <select id="imp-type" class="w-full bg-gray-50 p-4 rounded-xl border-0 font-bold">
-                    <option value="Mandato">Tudo como MANDATO</option>
-                    <option value="Campanha">Tudo como CAMPANHA</option>
+                    <option value="Mandato">Tudo de MANDATO</option>
+                    <option value="Campanha">Tudo de CAMPANHA</option>
                 </select>
                 <input type="file" id="import-file" accept=".xlsx, .xls" class="text-xs w-full bg-gray-100 p-4 rounded-xl">
             </div>
