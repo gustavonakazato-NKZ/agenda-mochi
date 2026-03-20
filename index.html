@@ -29,7 +29,7 @@
             .print-container { display: block !important; width: 100%; font-size: 10pt; color: #000; }
             .pdf-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #4f46e5; padding-bottom: 10px; margin-bottom: 20px; }
             table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-            th, td { border: 1px solid #000; padding: 6px; text-align: left; font-size: 8.5pt; word-wrap: break-word; }
+            th, td { border: 1px solid #000; padding: 8px; text-align: left; font-size: 8.5pt; word-wrap: break-word; }
             th { background-color: #f3f4f6; }
             .date-header { background-color: #eee; border: 1px solid #000; padding: 4px 8px; font-weight: bold; margin-top: 15px; }
         }
@@ -271,6 +271,11 @@
 
             if (!filtered.length) return alert("Não foram encontrados eventos autorizados para este período.");
             
+            // Nomenclatura automática para o PDF
+            const startLabel = start ? start.split('-').reverse().join('-') : 'Inicio';
+            const endLabel = end ? end.split('-').reverse().join('-') : 'Fim';
+            const pdfFileName = `Agenda-JM_${startLabel}_a_${endLabel}`;
+
             let html = `
                 <div class="print-container">
                     <div class="pdf-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #4f46e5; padding-bottom:10px; margin-bottom: 20px;">
@@ -282,17 +287,41 @@
                     </div>`;
             const grouped = {};
             filtered.forEach(app => { if(!grouped[app.date]) grouped[app.date] = []; grouped[app.date].push(app); });
+            
             Object.keys(grouped).sort().reverse().forEach(date => {
-                html += `<div class="date-header">DATA: ${date.split('-').reverse().join('/')}</div>
-                         <table style="width:100%; border-collapse:collapse; margin-bottom: 20px;"><thead><tr style="background:#f3f4f6"><th style="border:1px solid #000; padding:6px; font-size:9pt; width:15%">Hora</th><th style="border:1px solid #000; padding:6px; font-size:9pt; width:45%">Compromisso</th><th style="border:1px solid #000; padding:6px; font-size:9pt; width:20%">Local</th><th style="border:1px solid #000; padding:6px; font-size:9pt; width:20%">Contato</th></tr></thead><tbody>`;
+                grouped[date].sort((a, b) => b.time.localeCompare(a.time));
+
+                html += `<div style="background:#eee; padding:5px; font-weight:bold; margin-top:25px; border:1px solid #000;">DATA: ${date.split('-').reverse().join('/')}</div>
+                         <p style="margin: 15px 0;"></p>
+                         <table style="width:100%; border-collapse:collapse; margin-bottom: 20px;">
+                            <thead>
+                                <tr style="background:#f3f4f6">
+                                    <th style="border:1px solid #000; padding:6px; font-size:9pt; width:12%; text-align: center;">Hora</th>
+                                    <th style="border:1px solid #000; padding:6px; font-size:9pt; width:35%">Compromisso</th>
+                                    <th style="border:1px solid #000; padding:6px; font-size:9pt; width:18%">Local</th>
+                                    <th style="border:1px solid #000; padding:6px; font-size:9pt; width:17%">Contato</th>
+                                    <th style="border:1px solid #000; padding:6px; font-size:9pt; width:18%; text-align: center;">Imprensa</th>
+                                </tr>
+                            </thead>
+                            <tbody>`;
                 grouped[date].forEach(app => {
-                    const isRed = app.status === 'Acontecendo' ? 'color:red; font-weight:bold' : '';
-                    html += `<tr style="${isRed}"><td style="border:1px solid #000; padding:6px; font-size:9pt;">${app.time}</td><td style="border:1px solid #000; padding:6px; font-size:9pt;">${app.details}</td><td style="border:1px solid #000; padding:6px; font-size:9pt;">${app.location || '-'}</td><td style="border:1px solid #000; padding:6px; font-size:9pt;">${app.contact || '-'}</td></tr>`;
+                    const isRed = app.status === 'Acontecendo' ? 'color:red; font-weight:bold;' : '';
+                    const isCamp = app.activity_type === 'Campanha' ? 'border: 3px solid #16a34a;' : '';
+                    const pressStatus = app.press_coverage === 'Acompanhar' ? '<strong>Sim (Acompanhar)</strong>' : 'Não';
+                    
+                    html += `<tr style="${isRed} ${isCamp}">
+                                <td style="border:1px solid #000; padding:6px; font-size:9pt; text-align: center;">${app.time}</td>
+                                <td style="border:1px solid #000; padding:6px; font-size:9pt;">${app.details}</td>
+                                <td style="border:1px solid #000; padding:6px; font-size:9pt;">${app.location || '-'}</td>
+                                <td style="border:1px solid #000; padding:6px; font-size:9pt;">${app.contact || '-'}</td>
+                                <td style="border:1px solid #000; padding:6px; font-size:9pt; text-align: center;">${pressStatus}</td>
+                             </tr>`;
                 });
                 html += `</tbody></table>`;
             });
+            
             const win = window.open('', '_blank');
-            win.document.write(`<html><head><style>body{font-family:sans-serif;padding:20px}</style></head><body>${html}</body></html>`);
+            win.document.write(`<html><head><title>${pdfFileName}</title><style>body{font-family:sans-serif;padding:20px}</style></head><body>${html}</body></html>`);
             win.document.close();
             setTimeout(() => win.print(), 500);
         };
@@ -300,7 +329,6 @@
         const normalizeDate = (val) => {
             if (!val) return "";
             let d = String(val).trim();
-            // Lida com o formato DD/MM/AA do arquivo CSV
             if (d.includes('/')) {
                 const parts = d.split('/');
                 if (parts.length === 3) {
@@ -322,7 +350,6 @@
             reader.onload = async (evt) => {
                 try {
                     const workbook = XLSX.read(new Uint8Array(evt.target.result), {type:'array'});
-                    // CORREÇÃO: Acessar a primeira aba pelo nome correto
                     const sheetName = workbook.SheetNames[0];
                     const worksheet = workbook.Sheets[sheetName];
                     const json = XLSX.utils.sheet_to_json(worksheet);
@@ -347,7 +374,7 @@
                         });
                     });
                     await batch.commit();
-                    alert("Importação de " + json.length + " compromissos concluída!");
+                    alert("Importação concluída com sucesso!");
                     document.getElementById('import-modal').classList.add('hidden');
                 } catch (err) {
                     console.error(err);
