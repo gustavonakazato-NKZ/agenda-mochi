@@ -172,7 +172,6 @@
                     const h = document.createElement('h2');
                     const isToday = appDate === todayStr;
                     h.className = `text-lg font-bold mt-6 mb-2 border-b px-2 flex justify-between items-center ${isToday ? 'border-green-500 text-green-700 bg-green-50 rounded-t-lg' : 'border-indigo-200 text-indigo-700'}`;
-                    // Formata a exibição para DD/MM/AAAA
                     const displayDate = appDate.split('-').reverse().join('/');
                     h.innerHTML = `<span>${displayDate}</span> ${isToday ? '<span class="text-[10px] bg-green-500 text-white px-2 py-0.5 rounded-full uppercase">Hoje</span>' : ''}`;
                     container.appendChild(h);
@@ -284,7 +283,7 @@
             const grouped = {};
             filtered.forEach(app => { if(!grouped[app.date]) grouped[app.date] = []; grouped[app.date].push(app); });
             Object.keys(grouped).sort().reverse().forEach(date => {
-                html += `<div style="background:#eee; padding:5px; font-weight:bold; margin-top:15px; border:1px solid #000;">DATA: ${date.split('-').reverse().join('/')}</div>
+                html += `<div class="date-header">DATA: ${date.split('-').reverse().join('/')}</div>
                          <table style="width:100%; border-collapse:collapse; margin-bottom: 20px;"><thead><tr style="background:#f3f4f6"><th style="border:1px solid #000; padding:6px; font-size:9pt; width:15%">Hora</th><th style="border:1px solid #000; padding:6px; font-size:9pt; width:45%">Compromisso</th><th style="border:1px solid #000; padding:6px; font-size:9pt; width:20%">Local</th><th style="border:1px solid #000; padding:6px; font-size:9pt; width:20%">Contato</th></tr></thead><tbody>`;
                 grouped[date].forEach(app => {
                     const isRed = app.status === 'Acontecendo' ? 'color:red; font-weight:bold' : '';
@@ -298,21 +297,21 @@
             setTimeout(() => win.print(), 500);
         };
 
-        // Função de normalização para converter DD/MM/AA ou DD/MM/AAAA para AAAA-MM-DD
         const normalizeDate = (val) => {
             if (!val) return "";
             let d = String(val).trim();
+            // Lida com o formato DD/MM/AA do arquivo CSV
             if (d.includes('/')) {
                 const parts = d.split('/');
                 if (parts.length === 3) {
                     const day = parts[0].padStart(2, '0');
                     const month = parts[1].padStart(2, '0');
                     let year = parts[2];
-                    if (year.length === 2) year = "20" + year; // Assume 20XX para anos com 2 dígitos
+                    if (year.length === 2) year = "20" + year;
                     return `${year}-${month}-${day}`;
                 }
             }
-            return d; // Se já estiver no formato correto
+            return d;
         };
 
         window.importExcel = (e) => {
@@ -321,29 +320,39 @@
             const type = document.getElementById('imp-type').value;
             const reader = new FileReader();
             reader.onload = async (evt) => {
-                const json = XLSX.utils.sheet_to_json(XLSX.read(new Uint8Array(evt.target.result), {type:'array'}).Sheets[0]);
-                const batch = writeBatch(db);
-                json.forEach(row => {
-                    const newDoc = doc(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'));
+                try {
+                    const workbook = XLSX.read(new Uint8Array(evt.target.result), {type:'array'});
+                    // CORREÇÃO: Acessar a primeira aba pelo nome correto
+                    const sheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[sheetName];
+                    const json = XLSX.utils.sheet_to_json(worksheet);
                     
-                    // Normaliza a data para evitar erros de pesquisa e ordenação
-                    const dateFormatted = normalizeDate(row.Data);
+                    if (json.length === 0) return alert("Nenhum dado encontrado no arquivo.");
 
-                    batch.set(newDoc, {
-                        date: dateFormatted,
-                        time: String(row.Horario || '00:00'),
-                        details: String(row.Compromisso || ''),
-                        location: String(row.Local || ''),
-                        contact: String(row.Contato || ''),
-                        activity_type: type,
-                        authorized: isAuth,
-                        press_coverage: String(row.Imprensa || '').toLowerCase().includes('sim') || String(row.Imprensa || '').toLowerCase().includes('acompanhar') ? 'Acompanhar' : 'Não Acompanhar',
-                        status: String(row.Status || '').toLowerCase().includes('acontecendo') ? 'Acontecendo' : ''
+                    const batch = writeBatch(db);
+                    json.forEach(row => {
+                        const newDoc = doc(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'));
+                        const dateFormatted = normalizeDate(row.Data);
+
+                        batch.set(newDoc, {
+                            date: dateFormatted,
+                            time: String(row.Horario || '00:00'),
+                            details: String(row.Compromisso || ''),
+                            location: String(row.Local || ''),
+                            contact: String(row.Contato || ''),
+                            activity_type: type,
+                            authorized: isAuth,
+                            press_coverage: String(row.Imprensa || '').toLowerCase().includes('sim') || String(row.Imprensa || '').toLowerCase().includes('acompanhar') ? 'Acompanhar' : 'Não Acompanhar',
+                            status: String(row.Status || '').toLowerCase().includes('acontecendo') ? 'Acontecendo' : ''
+                        });
                     });
-                });
-                await batch.commit();
-                alert("Importação concluída com sucesso! As datas foram normalizadas.");
-                document.getElementById('import-modal').classList.add('hidden');
+                    await batch.commit();
+                    alert("Importação de " + json.length + " compromissos concluída!");
+                    document.getElementById('import-modal').classList.add('hidden');
+                } catch (err) {
+                    console.error(err);
+                    alert("Erro ao processar arquivo. Verifique se as colunas estão corretas.");
+                }
             };
             reader.readAsArrayBuffer(file);
         };
@@ -519,7 +528,7 @@
                     <input type="date" id="exp-end" class="w-full border border-gray-100 rounded-xl p-4 outline-none">
                 </div>
                 <button onclick="window.exportPDFTable()" class="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl shadow-lg uppercase tracking-widest">Visualizar PDF</button>
-                <button onclick="document.getElementById('export-modal').classList.add('hidden')" class="w-full py-2 text-gray-400 font-bold text-xs uppercase">Cancelar</button>
+                <button onclick="document.getElementById('export-modal').classList.add('hidden')" class="w-full py-2 text-gray-400 font-bold text-xs uppercase">Fechar</button>
             </div>
         </div>
     </div>
