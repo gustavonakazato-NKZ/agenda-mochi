@@ -44,7 +44,6 @@
         const apiKey = "";
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'agenda-mochi-producao';
 
-        // Configuração conforme sua última solicitação
         const firebaseConfig = typeof __firebase_config !== 'undefined' 
             ? JSON.parse(__firebase_config) 
             : {
@@ -60,6 +59,7 @@
         let appointments = [];
         let users = [];
         let isFirebaseConnected = false;
+        let selectedUserCpf = null;
         const logoUrl = "https://lh3.googleusercontent.com/d/1qpnoVc0Qy2Y3i9CMxjS0reoQTrhiP2b4";
 
         try {
@@ -171,10 +171,10 @@
                         ${!isAuth ? '<div class="mt-2 inline-block px-2 py-0.5 bg-yellow-500 text-white text-[10px] font-bold rounded">AGUARDANDO AUTORIZAÇÃO</div>' : ''}
                     </div>
                     <div class="flex sm:flex-col gap-2 ml-2 justify-end">
-                        ${canManage ? `<button onclick="window.toggleAuth('${app.id}', ${!isAuth})" class="p-2 bg-gray-100 rounded-lg">${isAuth ? '🔓' : '✅'}</button>` : ''}
+                        ${canManage ? `<button onclick="window.toggleAuth('${app.id}', ${!isAuth})" class="p-2 bg-gray-100 rounded-lg text-lg">${isAuth ? '🔓' : '✅'}</button>` : ''}
                         ${currentUserData.role !== 'Visitante' ? `
-                            <button onclick="window.editApp('${app.id}')" class="p-2 bg-blue-50 text-blue-600 rounded-lg">✎</button>
-                            <button onclick="window.deleteApp('${app.id}')" class="p-2 bg-red-50 text-red-600 rounded-lg">✕</button>
+                            <button onclick="window.editApp('${app.id}')" class="p-2 bg-blue-50 text-blue-600 rounded-lg text-lg">✎</button>
+                            <button onclick="window.deleteApp('${app.id}')" class="p-2 bg-red-50 text-red-600 rounded-lg text-lg">✕</button>
                         ` : ''}
                     </div>`;
                 container.appendChild(card);
@@ -206,6 +206,8 @@
         window.saveUser = async (e) => {
             e.preventDefault();
             const cpf = document.getElementById('u-cpf').value.replace(/\D/g, '');
+            if (!cpf) return alert("CPF é obrigatório.");
+            
             const data = {
                 cpf,
                 name: document.getElementById('u-name').value,
@@ -213,10 +215,22 @@
                 role: document.getElementById('u-role').value,
                 status: document.getElementById('u-status').value
             };
-            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpf), data);
-            alert("Dados do usuário atualizados!");
+            
+            try {
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpf), data);
+                alert(selectedUserCpf ? "Usuário atualizado com sucesso!" : "Novo usuário cadastrado!");
+                window.resetUserForm();
+            } catch (err) { alert("Erro ao gerenciar usuário."); }
+        };
+
+        window.resetUserForm = () => {
             document.getElementById('user-form').reset();
             document.getElementById('u-cpf').disabled = false;
+            document.getElementById('u-title').textContent = "Cadastrar Novo Usuário";
+            document.getElementById('u-btn').textContent = "CRIAR ACESSO AGORA";
+            document.getElementById('u-btn').classList.replace('bg-green-600', 'bg-indigo-600');
+            selectedUserCpf = null;
+            renderUsers();
         };
 
         const renderUsers = () => {
@@ -224,17 +238,31 @@
             list.innerHTML = '';
             users.forEach(u => {
                 const isSusp = u.status === 'Suspenso';
+                const isSelected = selectedUserCpf === u.cpf;
                 const div = document.createElement('div');
-                div.className = `p-4 rounded-xl border mb-2 flex justify-between items-center cursor-pointer transition ${isSusp ? 'bg-red-50 border-red-200' : 'bg-gray-50'}`;
+                div.className = `p-4 rounded-xl border mb-2 flex justify-between items-center cursor-pointer transition ${isSelected ? 'border-indigo-600 ring-2 ring-indigo-100 bg-indigo-50' : (isSusp ? 'bg-red-50 border-red-200' : 'bg-gray-50')}`;
                 div.onclick = () => {
+                    selectedUserCpf = u.cpf;
                     document.getElementById('u-cpf').value = u.cpf;
                     document.getElementById('u-cpf').disabled = true;
                     document.getElementById('u-name').value = u.name;
                     document.getElementById('u-pass').value = u.password;
                     document.getElementById('u-role').value = u.role;
                     document.getElementById('u-status').value = u.status || 'Ativo';
+                    document.getElementById('u-title').textContent = "Editar Usuário";
+                    document.getElementById('u-btn').textContent = "ATUALIZAR DADOS";
+                    document.getElementById('u-btn').classList.replace('bg-indigo-600', 'bg-green-600');
+                    renderUsers();
                 };
-                div.innerHTML = `<div><b>${u.name}</b> ${isSusp ? '<span class="text-red-600 text-[10px] font-bold">SUSPENSO</span>' : ''}<br><span class="text-xs text-gray-500">${u.role} | CPF: ${u.cpf}</span></div>`;
+                div.innerHTML = `
+                    <div class="flex-grow">
+                        <div class="font-bold text-gray-800">${u.name} ${isSusp ? '<span class="text-red-600 text-[10px] bg-red-100 px-1 rounded ml-1">SUSPENSO</span>' : ''}</div>
+                        <div class="text-xs text-gray-500">${u.role} | CPF: ${u.cpf}</div>
+                    </div>
+                    <div class="flex space-x-2">
+                        <button onclick="event.stopPropagation(); window.deleteUser('${u.cpf}')" class="p-2 text-red-400 hover:bg-red-100 rounded-lg">✕</button>
+                    </div>
+                `;
                 list.appendChild(div);
             });
         };
@@ -243,7 +271,10 @@
         window.exportPDFTable = () => {
             const start = document.getElementById('exp-start').value;
             const end = document.getElementById('exp-end').value;
+            if (!start || !end) return alert("Selecione as datas.");
+
             let filtered = appointments.filter(a => a.authorized && a.date >= start && a.date <= end);
+            if (!filtered.length) return alert("Nada autorizado encontrado no período.");
             
             let html = `
                 <div class="print-container">
@@ -279,7 +310,10 @@
             
             const reader = new FileReader();
             reader.onload = async (evt) => {
-                const json = XLSX.utils.sheet_to_json(XLSX.read(new Uint8Array(evt.target.result), {type:'array'}).Sheets[0]);
+                const data = new Uint8Array(evt.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+                const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+                
                 const batch = writeBatch(db);
                 json.forEach(row => {
                     const newDoc = doc(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'));
@@ -294,7 +328,7 @@
                     });
                 });
                 await batch.commit();
-                alert("Importação concluída!");
+                alert("Importação concluída com sucesso!");
                 document.getElementById('import-modal').classList.add('hidden');
             };
             reader.readAsArrayBuffer(file);
@@ -337,6 +371,7 @@
             document.getElementById('app-status').checked = a.status === 'Acontecendo';
         };
         window.deleteApp = async (id) => confirm("Apagar compromisso?") && await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'appointments', id));
+        window.deleteUser = async (cpf) => confirm("Apagar usuário permanentemente?") && await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpf));
 
     </script>
 </head>
@@ -360,7 +395,7 @@
                 <div class="flex items-center space-x-3">
                     <img src="https://lh3.googleusercontent.com/d/1qpnoVc0Qy2Y3i9CMxjS0reoQTrhiP2b4" alt="Logo" class="h-12 logo-glow">
                     <div>
-                        <h1 class="text-2xl font-black text-indigo-900 leading-tight">Agenda Junior Mochi</h1>
+                        <h1 class="text-2xl font-black text-indigo-900 leading-none">Agenda Junior Mochi</h1>
                         <p id="display-user-info" class="text-indigo-500 text-xs font-bold"></p>
                     </div>
                 </div>
@@ -415,7 +450,10 @@
             <div id="admin-view" class="hidden">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mx-2">
                     <div class="card bg-white p-6 rounded-3xl">
-                        <h3 class="font-bold text-indigo-600 mb-4 uppercase text-sm">Gerenciar Equipe</h3>
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 id="u-title" class="font-bold text-indigo-600 uppercase text-sm">Cadastrar Novo Usuário</h3>
+                            <button onclick="window.resetUserForm()" class="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-2 py-1 rounded">+ NOVO</button>
+                        </div>
                         <form onsubmit="window.saveUser(event)" id="user-form" class="space-y-3">
                             <input type="text" id="u-cpf" placeholder="CPF" class="w-full bg-gray-50 rounded-xl p-4 border-0">
                             <input type="text" id="u-name" placeholder="Nome" class="w-full bg-gray-50 rounded-xl p-4 border-0">
@@ -430,12 +468,12 @@
                                 <option value="Ativo">Status: Ativo</option>
                                 <option value="Suspenso">Status: Suspenso</option>
                             </select>
-                            <button type="submit" class="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold">SALVAR USUÁRIO</button>
+                            <button type="submit" id="u-btn" class="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold transition">CRIAR ACESSO AGORA</button>
                         </form>
                     </div>
                     <div class="card bg-white p-6 rounded-3xl">
                         <h3 class="font-bold text-gray-700 mb-4 uppercase text-sm">Lista de Usuários</h3>
-                        <p class="text-[10px] text-gray-400 mb-2 italic">Clique para editar</p>
+                        <p class="text-[10px] text-gray-400 mb-2 italic">Toque no nome para editar os dados</p>
                         <div id="users-list" class="max-h-[400px] overflow-y-auto"></div>
                     </div>
                 </div>
