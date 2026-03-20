@@ -288,8 +288,10 @@
             const grouped = {};
             filtered.forEach(app => { if(!grouped[app.date]) grouped[app.date] = []; grouped[app.date].push(app); });
             
+            // Ordena as datas de forma decrescente (do mais futuro para o mais passado)
             Object.keys(grouped).sort().reverse().forEach(date => {
-                grouped[date].sort((a, b) => b.time.localeCompare(a.time));
+                // CORREÇÃO: Ordena os eventos da data por horário CRESCENTE (mais cedo primeiro)
+                grouped[date].sort((a, b) => a.time.localeCompare(b.time));
 
                 html += `<div style="background:#eee; padding:5px; font-weight:bold; margin-top:25px; border:1px solid #000;">DATA: ${date.split('-').reverse().join('/')}</div>
                          <p style="margin: 15px 0;"></p>
