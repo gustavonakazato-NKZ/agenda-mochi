@@ -21,7 +21,7 @@
             h1 { font-size: 1.5rem !important; }
             .tab-btn { font-size: 0.75rem !important; padding: 0.75rem 0.25rem !important; }
             .card-appointment { flex-direction: column !important; }
-            .time-display { width: 100% !important; margin-bottom: 0.5rem; }
+            .time-display { width: 100% !important; margin-bottom: 0.5rem; font-size: 1.8rem !important; }
         }
 
         @media print {
@@ -29,7 +29,7 @@
             .print-container { display: block !important; width: 100%; font-size: 10pt; color: #000; }
             .pdf-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #4f46e5; padding-bottom: 10px; margin-bottom: 20px; }
             table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-            th, td { border: 1px solid #000; padding: 8px; text-align: left; font-size: 8.5pt; word-wrap: break-word; }
+            th, td { border: 1px solid #000; padding: 6px; text-align: left; font-size: 8.5pt; word-wrap: break-word; }
             th { background-color: #f3f4f6; }
             .date-header { background-color: #eee; border: 1px solid #000; padding: 4px 8px; font-weight: bold; margin-top: 15px; }
             .red-text { color: red !important; font-weight: bold; }
@@ -167,14 +167,15 @@
                                 <span><b>Atividade:</b> ${app.activity_type}</span>
                                 <span><b>Contato:</b> ${app.contact || '-'}</span>
                             </div>
+                            ${app.press_coverage === 'Acompanhar' ? '<div class="text-indigo-700 font-bold underline">Imprensa Acompanha</div>' : ''}
                         </div>
                         ${!isAuth ? '<div class="mt-2 inline-block px-2 py-0.5 bg-yellow-500 text-white text-[10px] font-bold rounded">AGUARDANDO AUTORIZAÇÃO</div>' : ''}
                     </div>
                     <div class="flex sm:flex-col gap-2 ml-2 justify-end">
-                        ${canManage ? `<button onclick="window.toggleAuth('${app.id}', ${!isAuth})" class="p-2 bg-gray-100 rounded-lg text-lg">${isAuth ? '🔓' : '✅'}</button>` : ''}
+                        ${canManage ? `<button onclick="window.toggleAuth('${app.id}', ${!isAuth})" class="p-2 bg-gray-100 rounded-lg">${isAuth ? '🔓' : '✅'}</button>` : ''}
                         ${currentUserData.role !== 'Visitante' ? `
-                            <button onclick="window.editApp('${app.id}')" class="p-2 bg-blue-50 text-blue-600 rounded-lg text-lg">✎</button>
-                            <button onclick="window.deleteApp('${app.id}')" class="p-2 bg-red-50 text-red-600 rounded-lg text-lg">✕</button>
+                            <button onclick="window.editApp('${app.id}')" class="p-2 bg-blue-50 text-blue-600 rounded-lg">✎</button>
+                            <button onclick="window.deleteApp('${app.id}')" class="p-2 bg-red-50 text-red-600 rounded-lg">✕</button>
                         ` : ''}
                     </div>`;
                 container.appendChild(card);
@@ -317,14 +318,27 @@
                 const batch = writeBatch(db);
                 json.forEach(row => {
                     const newDoc = doc(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'));
+                    
+                    // Lógica para Imprensa: se a coluna "Imprensa" tiver algo como "Sim", "Acompanhar", etc
+                    let press = 'Não Acompanhar';
+                    const impVal = String(row.Imprensa || '').toLowerCase();
+                    if (['sim', 'acompanhar', 'ok', 'a', 'x'].includes(impVal)) press = 'Acompanhar';
+
+                    // Lógica para Status: se a coluna "Status" tiver "Acontecendo"
+                    let status = '';
+                    const statusVal = String(row.Status || '').toLowerCase();
+                    if (['acontecendo', 'agora', 'em curso'].includes(statusVal)) status = 'Acontecendo';
+
                     batch.set(newDoc, {
                         date: String(row.Data || ''),
                         time: String(row.Horario || '00:00'),
                         details: String(row.Compromisso || ''),
+                        location: String(row.Local || ''),
+                        contact: String(row.Contato || ''),
                         activity_type: type,
                         authorized: isAuth,
-                        press_coverage: 'Não Acompanhar',
-                        status: ''
+                        press_coverage: press,
+                        status: status
                     });
                 });
                 await batch.commit();
@@ -395,7 +409,7 @@
                 <div class="flex items-center space-x-3">
                     <img src="https://lh3.googleusercontent.com/d/1qpnoVc0Qy2Y3i9CMxjS0reoQTrhiP2b4" alt="Logo" class="h-12 logo-glow">
                     <div>
-                        <h1 class="text-2xl font-black text-indigo-900 leading-none">Agenda Junior Mochi</h1>
+                        <h1 class="text-2xl font-black text-indigo-900 leading-tight">Agenda Junior Mochi</h1>
                         <p id="display-user-info" class="text-indigo-500 text-xs font-bold"></p>
                     </div>
                 </div>
@@ -483,7 +497,7 @@
 
     <!-- MODAIS -->
     <div id="export-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
-        <div class="bg-white rounded-3xl p-6 w-full max-w-sm">
+        <div class="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
             <h3 class="font-bold text-lg mb-6">Filtros do PDF</h3>
             <div class="space-y-4">
                 <input type="date" id="exp-start" class="w-full border rounded-xl p-4">
