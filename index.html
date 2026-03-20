@@ -2,29 +2,34 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Agenda do Deputado Junior Mochi</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #f7f9fc; }
+        body { font-family: 'Inter', sans-serif; background-color: #f7f9fc; -webkit-tap-highlight-color: transparent; }
         .card { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1); }
         
-        .unauthorized-bar { 
-            background-color: #fef9c3; 
-            border-left: 6px solid #eab308; 
-        }
-        
-        .logo-glow {
-            filter: drop-shadow(0 0 10px rgba(79, 70, 229, 0.3));
+        .unauthorized-bar { background-color: #fef9c3; border-left: 6px solid #eab308; }
+        .logo-glow { filter: drop-shadow(0 0 10px rgba(79, 70, 229, 0.3)); }
+
+        /* Ajustes Mobile */
+        @media (max-width: 640px) {
+            .input-group { grid-template-columns: 1fr !important; }
+            .btn-mobile-full { width: 100% !important; margin-bottom: 0.5rem; }
+            h1 { font-size: 1.5rem !important; }
+            .tab-btn { font-size: 0.75rem !important; padding: 0.75rem 0.25rem !important; }
+            .card-appointment { flex-direction: column !important; }
+            .time-display { width: 100% !important; margin-bottom: 0.5rem; }
         }
 
         @media print {
             body > *:not(.print-container) { display: none !important; }
-            .print-container { display: block !important; position: absolute; left: 0; top: 0; width: 100%; font-size: 10pt; color: #000; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 20px; table-layout: fixed; }
-            th, td { border: 1px solid #000; padding: 8px; text-align: left; font-size: 9pt; word-wrap: break-word; }
+            .print-container { display: block !important; width: 100%; font-size: 10pt; color: #000; }
+            .pdf-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #4f46e5; padding-bottom: 10px; margin-bottom: 20px; }
+            table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+            th, td { border: 1px solid #000; padding: 8px; text-align: left; font-size: 8.5pt; word-wrap: break-word; }
             th { background-color: #f3f4f6; }
             .date-header { background-color: #eee; border: 1px solid #000; padding: 4px 8px; font-weight: bold; margin-top: 15px; }
             .red-text { color: red !important; font-weight: bold; }
@@ -36,14 +41,10 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, addDoc, setDoc, getDoc, getDocs, onSnapshot, collection, query, where, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
-        // Chave vazia para uso interno do ambiente conforme instruções
         const apiKey = "";
-        
-        // Detecta se está no ambiente do Canvas ou no GitHub Pages
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'agenda-mochi-producao';
 
-        // Configuração híbrida: Prioriza a configuração injetada pelo ambiente (Canvas)
-        // e usa a sua configuração pessoal como fallback (GitHub)
+        // Configuração conforme sua última solicitação
         const firebaseConfig = typeof __firebase_config !== 'undefined' 
             ? JSON.parse(__firebase_config) 
             : {
@@ -59,14 +60,8 @@
         let appointments = [];
         let users = [];
         let isFirebaseConnected = false;
+        const logoUrl = "https://lh3.googleusercontent.com/d/1qpnoVc0Qy2Y3i9CMxjS0reoQTrhiP2b4";
 
-        const loginScreen = document.getElementById('login-screen');
-        const mainApp = document.getElementById('main-app');
-        const adminTabBtn = document.getElementById('tab-admin-btn');
-        const formTabBtn = document.getElementById('tab-form-btn');
-        const listTabBtn = document.getElementById('tab-list-btn');
-
-        // Inicialização do Firebase
         try {
             const app = initializeApp(firebaseConfig);
             db = getFirestore(app);
@@ -74,157 +69,114 @@
             
             const initAuth = async () => {
                 try {
-                    // Regra de Ouro: Tentar autenticação com token customizado primeiro se disponível no Canvas
                     const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-                    if (initialAuthToken) {
-                        await signInWithCustomToken(auth, initialAuthToken);
-                    } else {
-                        await signInAnonymously(auth);
-                    }
+                    if (initialAuthToken) await signInWithCustomToken(auth, initialAuthToken);
+                    else await signInAnonymously(auth);
                     isFirebaseConnected = true;
-                    console.log("Firebase conectado com sucesso!");
-                } catch (err) {
-                    console.error("Erro na conexão:", err);
-                    // Não mostra alert aqui para não travar a UI no carregamento
-                }
+                } catch (err) { console.error("Erro Firebase:", err); }
             };
             initAuth();
-        } catch (e) { 
-            console.error("Erro Firebase:", e); 
-        }
+        } catch (e) { console.error(e); }
 
-        // --- SISTEMA DE LOGIN ---
         window.handleLogin = async (e) => {
             if(e) e.preventDefault();
-            
-            if (!isFirebaseConnected) {
-                return alert("Aguarde a conexão com o banco de dados. Se o erro persistir, verifique suas chaves no código.");
-            }
+            if (!isFirebaseConnected) return alert("Conectando ao banco...");
 
             const cpf = document.getElementById('login-cpf').value.replace(/\D/g, '');
             const pass = document.getElementById('login-pass').value;
 
-            if (!cpf || !pass) return alert("Por favor, preencha o CPF e a Senha.");
-
             try {
-                // Tenta buscar o usuário na coleção pública
                 const userDoc = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpf));
-                
-                if (userDoc.exists() && userDoc.data().password === pass) {
-                    currentUserData = userDoc.data();
-                    enterApp();
-                } else {
-                    // Lógica de Login Mestre (apenas se o banco estiver vazio)
-                    if (cpf === '00000000000' && pass === 'admin123') {
-                        const usersSnap = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'users'));
-                        if (usersSnap.empty) {
-                            currentUserData = { cpf: '00000000000', name: 'Administrador Inicial', role: 'Administrador' };
-                            enterApp();
-                        } else {
-                            alert("O acesso de emergência foi desativado automaticamente porque já existem usuários cadastrados.");
-                        }
-                    } else {
-                        alert("CPF ou Senha incorretos.");
+                if (userDoc.exists()) {
+                    const ud = userDoc.data();
+                    if (ud.status === 'Suspenso') return alert("Acesso suspenso pelo administrador.");
+                    if (ud.password === pass) {
+                        currentUserData = ud;
+                        enterApp();
+                        return;
                     }
                 }
-            } catch (err) { 
-                console.error(err);
-                alert("Erro ao conectar ao banco. Verifique as Regras de Segurança (Step 5) no seu Console do Firebase."); 
-            }
+                
+                if (cpf === '00000000000' && pass === 'admin123') {
+                    const usersSnap = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'users'));
+                    if (usersSnap.empty) {
+                        currentUserData = { cpf: '00000000000', name: 'Administrador Inicial', role: 'Administrador', status: 'Ativo' };
+                        enterApp();
+                    } else alert("Acesso mestre bloqueado.");
+                } else alert("CPF ou Senha incorretos.");
+            } catch (err) { alert("Erro de conexão."); }
         };
 
         const enterApp = () => {
-            loginScreen.classList.add('hidden');
-            mainApp.classList.remove('hidden');
-            applyPermissions();
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('main-app').classList.remove('hidden');
+            document.getElementById('display-user-info').textContent = `${currentUserData.name} (${currentUserData.role})`;
+            document.getElementById('tab-admin-btn').classList.toggle('hidden', currentUserData.role !== 'Administrador');
+            document.getElementById('tab-form-btn').classList.toggle('hidden', currentUserData.role === 'Visitante');
+            document.getElementById('import-btn').classList.toggle('hidden', !['Administrador', 'Principal'].includes(currentUserData.role));
+            switchTab(currentUserData.role === 'Visitante' ? 'list' : 'form');
             startDataListeners();
         };
 
-        const applyPermissions = () => {
-            const role = currentUserData.role;
-            document.getElementById('display-user-info').textContent = `${currentUserData.name} (${role})`;
-            adminTabBtn.classList.toggle('hidden', role !== 'Administrador');
-            formTabBtn.classList.toggle('hidden', role === 'Visitante');
-            document.getElementById('actions-header').classList.toggle('hidden', role === 'Visitante');
-            document.getElementById('import-btn').classList.toggle('hidden', !['Administrador', 'Principal'].includes(role));
-            if (role === 'Visitante') switchTab('list');
-            else switchTab('form');
-        };
-
         const startDataListeners = () => {
-            const qApp = query(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'));
-            onSnapshot(qApp, (snapshot) => {
-                appointments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                appointments.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+            onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'appointments')), (snap) => {
+                appointments = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 renderAppointments();
-            }, (err) => console.error("Erro no listener de compromissos:", err));
-
+            });
             if (currentUserData.role === 'Administrador') {
-                const qUser = query(collection(db, 'artifacts', appId, 'public', 'data', 'users'));
-                onSnapshot(qUser, (snapshot) => {
-                    users = snapshot.docs.map(doc => doc.data());
+                onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'users')), (snap) => {
+                    users = snap.docs.map(doc => doc.data());
                     renderUsers();
-                }, (err) => console.error("Erro no listener de usuários:", err));
+                });
             }
         };
 
         const renderAppointments = () => {
             const container = document.getElementById('appointments-list');
             container.innerHTML = '';
-            let currentDay = '';
             const filter = document.getElementById('list-filter').value;
             const today = new Date().toISOString().split('T')[0];
 
             let filtered = appointments.filter(app => {
-                if (currentUserData.role === 'Visitante') {
-                    return app.authorized === true && app.date >= today;
-                }
-                if (filter === 'Ambos') return true;
-                return (app.activity_type || 'Mandato') === filter;
-            });
+                if (currentUserData.role === 'Visitante') return app.authorized === true && app.date >= today;
+                return filter === 'Ambos' || app.activity_type === filter;
+            }).sort((a,b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
 
+            let currentDay = '';
             filtered.forEach(app => {
                 if (app.date !== currentDay) {
                     const h = document.createElement('h2');
-                    h.className = 'text-lg font-bold mt-6 mb-2 border-b border-indigo-200 text-indigo-700';
+                    h.className = 'text-lg font-bold mt-6 mb-2 border-b border-indigo-200 text-indigo-700 px-2';
                     h.textContent = app.date.split('-').reverse().join('/');
                     container.appendChild(h);
                     currentDay = app.date;
                 }
-
                 const isHap = app.status === 'Acontecendo';
                 const isAuth = app.authorized === true;
-                const isCamp = (app.activity_type || 'Mandato') === 'Campanha';
-                const canManageAuth = ['Administrador', 'Principal'].includes(currentUserData.role);
-
-                const card = document.createElement('div');
-                card.className = `card p-4 mb-3 rounded-xl transition ${!isAuth ? 'unauthorized-bar' : (isHap ? 'bg-red-50 ring-1 ring-red-300' : 'bg-white')}`;
+                const canManage = ['Administrador', 'Principal'].includes(currentUserData.role);
                 
-                let timeColor = isHap ? 'text-red-700' : (isCamp ? 'text-green-900 font-black' : 'text-indigo-600');
-
+                const card = document.createElement('div');
+                card.className = `card p-4 mb-3 rounded-xl mx-2 transition card-appointment flex ${!isAuth ? 'unauthorized-bar' : (isHap ? 'bg-red-50 ring-1 ring-red-300' : 'bg-white')}`;
                 card.innerHTML = `
-                    <div class="flex items-start">
-                        <div class="text-xl font-black w-16 flex-shrink-0 ${timeColor}">${app.time}</div>
-                        <div class="flex-grow">
-                            <p class="font-bold text-gray-800">${app.details}</p>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 mt-2 text-xs text-gray-500">
-                                <div><span class="font-semibold">Local:</span> ${app.location || '-'}</div>
-                                <div><span class="font-semibold">Atividade:</span> ${app.activity_type || 'Mandato'}</div>
-                                <div><span class="font-semibold">Contato:</span> ${app.contact || '-'}</div>
-                                <div><span class="font-semibold">Imprensa:</span> ${app.press_coverage === 'Acompanhar' ? '<u class="font-bold text-indigo-700">Acompanhar</u>' : 'Não'}</div>
+                    <div class="text-2xl font-black w-20 time-display flex-shrink-0 ${isHap ? 'text-red-700' : (app.activity_type === 'Campanha' ? 'text-green-900' : 'text-indigo-600')}">${app.time}</div>
+                    <div class="flex-grow">
+                        <p class="font-bold text-gray-800 text-lg sm:text-base">${app.details}</p>
+                        <div class="text-sm text-gray-500 mt-1 space-y-1">
+                            <div><b>Local:</b> ${app.location || '-'}</div>
+                            <div class="flex flex-wrap gap-x-4">
+                                <span><b>Atividade:</b> ${app.activity_type}</span>
+                                <span><b>Contato:</b> ${app.contact || '-'}</span>
                             </div>
-                            ${!isAuth ? '<div class="mt-2 inline-block px-2 py-0.5 bg-yellow-500 text-white text-[10px] font-bold rounded">AGUARDANDO AUTORIZAÇÃO</div>' : ''}
                         </div>
-                        <div class="flex space-x-1 ml-2">
-                            ${canManageAuth ? `<button onclick="window.toggleAuth('${app.id}', ${!isAuth})" class="p-1.5 bg-gray-100 rounded-lg hover:bg-gray-200">${isAuth ? '🔓' : '✅'}</button>` : ''}
-                            ${currentUserData.role !== 'Visitante' ? `
-                                <button onclick="window.duplicateApp('${app.id}')" class="p-1.5 bg-purple-100 text-purple-600 rounded-lg">❐</button>
-                                <button onclick="window.editApp('${app.id}')" class="p-1.5 bg-blue-100 text-blue-600 rounded-lg">✎</button>
-                                <button onclick="window.deleteApp('${app.id}')" class="p-1.5 bg-red-100 text-red-600 rounded-lg">✕</button>
-                            ` : ''}
-                        </div>
+                        ${!isAuth ? '<div class="mt-2 inline-block px-2 py-0.5 bg-yellow-500 text-white text-[10px] font-bold rounded">AGUARDANDO AUTORIZAÇÃO</div>' : ''}
                     </div>
-                `;
+                    <div class="flex sm:flex-col gap-2 ml-2 justify-end">
+                        ${canManage ? `<button onclick="window.toggleAuth('${app.id}', ${!isAuth})" class="p-2 bg-gray-100 rounded-lg">${isAuth ? '🔓' : '✅'}</button>` : ''}
+                        ${currentUserData.role !== 'Visitante' ? `
+                            <button onclick="window.editApp('${app.id}')" class="p-2 bg-blue-50 text-blue-600 rounded-lg">✎</button>
+                            <button onclick="window.deleteApp('${app.id}')" class="p-2 bg-red-50 text-red-600 rounded-lg">✕</button>
+                        ` : ''}
+                    </div>`;
                 container.appendChild(card);
             });
         };
@@ -236,88 +188,123 @@
             const data = {
                 date: document.getElementById('app-date').value,
                 time: document.getElementById('app-time').value,
-                details: document.getElementById('app-details').value.trim(),
-                contact: document.getElementById('app-contact').value.trim(),
+                details: document.getElementById('app-details').value,
+                contact: document.getElementById('app-contact').value,
                 activity_type: document.getElementById('app-activity').value,
                 press_coverage: document.getElementById('app-press').value,
-                location: document.getElementById('app-location').value.trim(),
+                location: document.getElementById('app-location').value,
                 status: document.getElementById('app-status').checked ? 'Acontecendo' : '',
-                authorized: isPrivileged ? true : false
+                authorized: id ? (appointments.find(a => a.id === id).authorized) : isPrivileged
             };
-            try {
-                const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'appointments');
-                if (id) await setDoc(doc(colRef, id), data, { merge: true });
-                else await addDoc(colRef, data);
-                alert("Salvo com sucesso!");
-                resetAppForm();
-            } catch (err) { alert("Erro ao salvar dados."); }
+            const col = collection(db, 'artifacts', appId, 'public', 'data', 'appointments');
+            id ? await setDoc(doc(col, id), data, {merge:true}) : await addDoc(col, data);
+            alert("Compromisso salvo!");
+            resetAppForm();
         };
 
-        window.toggleAuth = async (id, status) => {
-            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'appointments', id), { authorized: status }, { merge: true });
-        };
-
+        // --- GESTÃO DE USUÁRIOS ---
         window.saveUser = async (e) => {
             e.preventDefault();
             const cpf = document.getElementById('u-cpf').value.replace(/\D/g, '');
-            const name = document.getElementById('u-name').value;
-            const pass = document.getElementById('u-pass').value;
-            const role = document.getElementById('u-role').value;
-            if(!cpf || !name || !pass) return alert("Preencha todos os campos.");
-            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpf), { cpf, name, password: pass, role });
-            alert("Usuário criado!");
+            const data = {
+                cpf,
+                name: document.getElementById('u-name').value,
+                password: document.getElementById('u-pass').value,
+                role: document.getElementById('u-role').value,
+                status: document.getElementById('u-status').value
+            };
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpf), data);
+            alert("Dados do usuário atualizados!");
             document.getElementById('user-form').reset();
+            document.getElementById('u-cpf').disabled = false;
         };
 
         const renderUsers = () => {
             const list = document.getElementById('users-list');
             list.innerHTML = '';
             users.forEach(u => {
+                const isSusp = u.status === 'Suspenso';
                 const div = document.createElement('div');
-                div.className = "p-3 bg-gray-50 rounded-xl border mb-2 flex justify-between items-center text-sm";
-                div.innerHTML = `<div><b>${u.name}</b><br><span class="text-xs text-gray-500">${u.role}</span></div>
-                                 <button onclick="window.deleteUser('${u.cpf}')" class="text-red-500 font-bold px-2">✕</button>`;
+                div.className = `p-4 rounded-xl border mb-2 flex justify-between items-center cursor-pointer transition ${isSusp ? 'bg-red-50 border-red-200' : 'bg-gray-50'}`;
+                div.onclick = () => {
+                    document.getElementById('u-cpf').value = u.cpf;
+                    document.getElementById('u-cpf').disabled = true;
+                    document.getElementById('u-name').value = u.name;
+                    document.getElementById('u-pass').value = u.password;
+                    document.getElementById('u-role').value = u.role;
+                    document.getElementById('u-status').value = u.status || 'Ativo';
+                };
+                div.innerHTML = `<div><b>${u.name}</b> ${isSusp ? '<span class="text-red-600 text-[10px] font-bold">SUSPENSO</span>' : ''}<br><span class="text-xs text-gray-500">${u.role} | CPF: ${u.cpf}</span></div>`;
                 list.appendChild(div);
             });
         };
 
-        window.deleteUser = async (cpf) => {
-            if(confirm("Excluir usuário?")) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpf));
-        };
-
+        // --- EXPORTAÇÃO E IMPORTAÇÃO ---
         window.exportPDFTable = () => {
             const start = document.getElementById('exp-start').value;
             const end = document.getElementById('exp-end').value;
-            const filter = document.getElementById('exp-filter').value;
-            let filtered = appointments.filter(a => a.authorized === true && a.date >= start && a.date <= end);
-            if (filter !== 'Ambos') filtered = filtered.filter(a => (a.activity_type || 'Mandato') === filter);
-            if (!filtered.length) return alert("Nada autorizado encontrado.");
-            let html = `<div style="padding:20px;font-family:sans-serif"><h1 style="text-align:center">Agenda - Deputado Junior Mochi</h1>`;
+            let filtered = appointments.filter(a => a.authorized && a.date >= start && a.date <= end);
+            
+            let html = `
+                <div class="print-container">
+                    <div class="pdf-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #4f46e5; padding-bottom:10px;">
+                        <img src="${logoUrl}" style="height: 60px;">
+                        <div style="text-align: right">
+                            <h1 style="margin:0; color:#4f46e5; font-size:18pt;">AGENDA OFICIAL</h1>
+                            <p style="margin:0">Deputado Junior Mochi</p>
+                        </div>
+                    </div>
+            `;
+            
             const grouped = {};
-            filtered.forEach(app => { if (!grouped[app.date]) grouped[app.date] = []; grouped[app.date].push(app); });
+            filtered.forEach(app => { if(!grouped[app.date]) grouped[app.date] = []; grouped[app.date].push(app); });
             Object.keys(grouped).sort().forEach(date => {
-                html += `<div style="background:#eee;padding:5px;font-weight:bold;margin-top:15px;border:1px solid #000">DATA: ${date.split('-').reverse().join('/')}</div>
-                         <table style="width:100%;border-collapse:collapse"><thead><tr style="background:#f3f4f6"><th style="border:1px solid #000;padding:6px">Horário - Tipo</th><th style="border:1px solid #000;padding:6px">Compromisso</th><th style="border:1px solid #000;padding:6px">Imprensa</th><th style="border:1px solid #000;padding:6px">Local</th></tr></thead><tbody>`;
+                html += `<div style="background:#eee; padding:5px; font-weight:bold; margin-top:15px; border:1px solid #000;">DATA: ${date.split('-').reverse().join('/')}</div>
+                         <table style="width:100%; border-collapse:collapse;"><thead><tr style="background:#f3f4f6"><th style="border:1px solid #000;padding:6px;width:15%">Hora</th><th style="border:1px solid #000;padding:6px;width:45%">Compromisso</th><th style="border:1px solid #000;padding:6px;width:20%">Local</th><th style="border:1px solid #000;padding:6px;width:20%">Contato</th></tr></thead><tbody>`;
                 grouped[date].forEach(app => {
-                    const isRed = app.status === 'Acontecendo' ? 'color:red;font-weight:bold' : '';
-                    html += `<tr style="${isRed}"><td style="border:1px solid #000;padding:6px">${app.time} - ${app.activity_type || 'Mandato'}</td><td style="border:1px solid #000;padding:6px">${app.details}</td><td style="border:1px solid #000;padding:6px">${app.press_coverage}</td><td style="border:1px solid #000;padding:6px">${app.location || '-'}</td></tr>`;
+                    html += `<tr><td style="border:1px solid #000;padding:6px">${app.time}</td><td style="border:1px solid #000;padding:6px">${app.details}</td><td style="border:1px solid #000;padding:6px">${app.location || '-'}</td><td style="border:1px solid #000;padding:6px">${app.contact || '-'}</td></tr>`;
                 });
                 html += `</tbody></table>`;
             });
             const win = window.open('', '_blank');
-            win.document.write(html); win.document.close(); win.print();
+            win.document.write(`<html><head><style>body{font-family:sans-serif;padding:20px}</style></head><body>${html}</body></html>`);
+            win.document.close();
+            setTimeout(() => win.print(), 500);
+        };
+
+        window.importExcel = (e) => {
+            const file = e.target.files[0];
+            const isAuth = document.getElementById('imp-auth').checked;
+            const type = document.getElementById('imp-type').value;
+            
+            const reader = new FileReader();
+            reader.onload = async (evt) => {
+                const json = XLSX.utils.sheet_to_json(XLSX.read(new Uint8Array(evt.target.result), {type:'array'}).Sheets[0]);
+                const batch = writeBatch(db);
+                json.forEach(row => {
+                    const newDoc = doc(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'));
+                    batch.set(newDoc, {
+                        date: String(row.Data || ''),
+                        time: String(row.Horario || '00:00'),
+                        details: String(row.Compromisso || ''),
+                        activity_type: type,
+                        authorized: isAuth,
+                        press_coverage: 'Não Acompanhar',
+                        status: ''
+                    });
+                });
+                await batch.commit();
+                alert("Importação concluída!");
+                document.getElementById('import-modal').classList.add('hidden');
+            };
+            reader.readAsArrayBuffer(file);
         };
 
         const switchTab = (tab) => {
-            document.getElementById('form-view').classList.toggle('hidden', tab !== 'form');
-            document.getElementById('list-view').classList.toggle('hidden', tab !== 'list');
-            document.getElementById('admin-view').classList.toggle('hidden', tab !== 'admin');
-            const btns = { 'form': formTabBtn, 'list': listTabBtn, 'admin': adminTabBtn };
-            Object.keys(btns).forEach(k => {
-                if(!btns[k]) return;
-                if(k === tab) { btns[k].classList.add('bg-indigo-600', 'text-white'); btns[k].classList.remove('bg-gray-200'); }
-                else { btns[k].classList.remove('bg-indigo-600', 'text-white'); btns[k].classList.add('bg-gray-200'); }
-            });
+            ['form-view', 'list-view', 'admin-view'].forEach(v => document.getElementById(v).classList.add('hidden'));
+            document.getElementById(tab + '-view').classList.remove('hidden');
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('bg-indigo-600', 'text-white'));
+            document.getElementById('tab-' + tab + '-btn').classList.add('bg-indigo-600', 'text-white');
         };
 
         const resetAppForm = () => {
@@ -326,139 +313,166 @@
             document.getElementById('app-date').value = new Date().toISOString().split('T')[0];
         };
 
-        window.editApp = (id) => {
-            const app = appointments.find(a => a.id === id);
-            switchTab('form');
-            document.getElementById('app-id').value = app.id;
-            document.getElementById('app-date').value = app.date;
-            document.getElementById('app-time').value = app.time;
-            document.getElementById('app-details').value = app.details;
-            document.getElementById('app-activity').value = app.activity_type || 'Mandato';
-            document.getElementById('app-press').value = app.press_coverage || 'Não Acompanhar';
-            document.getElementById('app-location').value = app.location || '';
-            document.getElementById('app-status').checked = app.status === 'Acontecendo';
-        };
-
-        window.deleteApp = async (id) => { if(confirm("Excluir?")) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'appointments', id)); };
-        window.duplicateApp = (id) => { window.editApp(id); document.getElementById('app-id').value = ''; };
-
         window.onload = () => {
-            formTabBtn.onclick = () => { resetAppForm(); switchTab('form'); };
-            listTabBtn.onclick = () => switchTab('list');
-            adminTabBtn.onclick = () => switchTab('admin');
+            document.getElementById('app-date').value = new Date().toISOString().split('T')[0];
+            document.getElementById('tab-form-btn').onclick = () => { resetAppForm(); switchTab('form'); };
+            document.getElementById('tab-list-btn').onclick = () => switchTab('list');
+            document.getElementById('tab-admin-btn').onclick = () => switchTab('admin');
             document.getElementById('list-filter').onchange = renderAppointments;
+            document.getElementById('import-file').onchange = window.importExcel;
         };
+
+        window.toggleAuth = async (id, s) => await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'appointments', id), {authorized: s}, {merge:true});
+        window.editApp = (id) => {
+            const a = appointments.find(x => x.id === id);
+            switchTab('form');
+            document.getElementById('app-id').value = a.id;
+            document.getElementById('app-date').value = a.date;
+            document.getElementById('app-time').value = a.time;
+            document.getElementById('app-details').value = a.details;
+            document.getElementById('app-activity').value = a.activity_type;
+            document.getElementById('app-press').value = a.press_coverage;
+            document.getElementById('app-location').value = a.location || '';
+            document.getElementById('app-contact').value = a.contact || '';
+            document.getElementById('app-status').checked = a.status === 'Acontecendo';
+        };
+        window.deleteApp = async (id) => confirm("Apagar compromisso?") && await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'appointments', id));
+
     </script>
 </head>
-<body class="pb-10">
+<body class="pb-20 sm:pb-10">
 
-    <!-- LOGIN -->
     <div id="login-screen" class="fixed inset-0 bg-indigo-900 flex items-center justify-center p-4 z-[100]">
-        <div class="bg-white rounded-[2.5rem] p-10 w-full max-w-sm shadow-2xl text-center">
-            <img src="https://lh3.googleusercontent.com/d/1qpnoVc0Qy2Y3i9CMxjS0reoQTrhiP2b4" alt="Logo" class="h-28 mx-auto mb-6 logo-glow">
-            <h1 class="text-2xl font-black text-indigo-900 mb-6">Acesso à Agenda</h1>
-            <form onsubmit="window.handleLogin(event)" class="space-y-4 text-left">
-                <input type="text" id="login-cpf" class="w-full bg-gray-50 rounded-2xl p-4 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="CPF">
-                <input type="password" id="login-pass" class="w-full bg-gray-50 rounded-2xl p-4 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Senha">
-                <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl shadow-xl hover:bg-indigo-700 transition">Entrar</button>
+        <div class="bg-white rounded-[2.5rem] p-8 w-full max-w-sm shadow-2xl text-center">
+            <img src="https://lh3.googleusercontent.com/d/1qpnoVc0Qy2Y3i9CMxjS0reoQTrhiP2b4" alt="Logo" class="h-24 mx-auto mb-6 logo-glow">
+            <h1 class="text-2xl font-black text-indigo-900 mb-6 uppercase tracking-tight">Agenda Mochi</h1>
+            <form onsubmit="window.handleLogin(event)" class="space-y-4">
+                <input type="text" id="login-cpf" class="w-full bg-gray-50 rounded-2xl p-4 outline-none focus:ring-2 focus:ring-indigo-500" placeholder="CPF (apenas números)">
+                <input type="password" id="login-pass" class="w-full bg-gray-50 rounded-2xl p-4 outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Senha">
+                <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl shadow-xl active:scale-95 transition">ACESSAR SISTEMA</button>
             </form>
-            <p class="text-[9px] text-gray-400 mt-8 uppercase font-bold tracking-tighter">Acesso Mestre: 00000000000 / admin123</p>
         </div>
     </div>
 
-    <!-- MAIN APP -->
     <div id="main-app" class="hidden">
-        <div id="auth-status" class="fixed top-0 left-0 right-0 p-1 text-center bg-green-100 text-green-700 text-[10px] z-50">Sessão Ativa</div>
-        <div class="max-w-4xl mx-auto p-4 pt-10">
-            <header class="flex flex-col md:flex-row justify-between items-center mb-8">
-                <div class="flex items-center space-x-4">
-                    <img src="https://lh3.googleusercontent.com/d/1qpnoVc0Qy2Y3i9CMxjS0reoQTrhiP2b4" alt="Mochi" class="h-14 logo-glow">
+        <div class="max-w-4xl mx-auto p-4 pt-6">
+            <header class="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4">
+                <div class="flex items-center space-x-3">
+                    <img src="https://lh3.googleusercontent.com/d/1qpnoVc0Qy2Y3i9CMxjS0reoQTrhiP2b4" alt="Logo" class="h-12 logo-glow">
                     <div>
-                        <h1 class="text-2xl font-black text-indigo-900 leading-none">Agenda Junior Mochi</h1>
-                        <p id="display-user-info" class="text-indigo-500 text-xs font-bold mt-1"></p>
+                        <h1 class="text-2xl font-black text-indigo-900 leading-tight">Agenda Junior Mochi</h1>
+                        <p id="display-user-info" class="text-indigo-500 text-xs font-bold"></p>
                     </div>
                 </div>
-                <div id="actions-header" class="flex space-x-2 mt-4 md:mt-0">
-                    <button id="import-btn" onclick="document.getElementById('import-modal').classList.remove('hidden')" class="bg-purple-600 text-white px-3 py-2 text-xs font-bold rounded-xl">↑ Importar</button>
-                    <button onclick="document.getElementById('export-modal').classList.remove('hidden')" class="bg-green-600 text-white px-3 py-2 text-xs font-bold rounded-xl">↓ Gerar PDF</button>
-                    <button onclick="location.reload()" class="bg-gray-200 px-3 py-2 text-xs font-bold rounded-xl">Sair</button>
+                <div class="flex w-full sm:w-auto gap-2">
+                    <button id="import-btn" onclick="document.getElementById('import-modal').classList.remove('hidden')" class="flex-1 sm:flex-none px-4 py-2 bg-purple-600 text-white text-[10px] font-bold rounded-xl">IMPORTAR</button>
+                    <button onclick="document.getElementById('export-modal').classList.remove('hidden')" class="flex-1 sm:flex-none px-4 py-2 bg-green-600 text-white text-[10px] font-bold rounded-xl">GERAR PDF</button>
+                    <button onclick="location.reload()" class="px-4 py-2 bg-gray-200 text-gray-600 text-[10px] font-bold rounded-xl">SAIR</button>
                 </div>
             </header>
 
-            <div class="flex border-b border-gray-200 mb-8 rounded-t-2xl">
-                <button id="tab-form-btn" class="flex-1 py-4 text-sm font-bold">Cadastro</button>
-                <button id="tab-list-btn" class="flex-1 py-4 text-sm font-bold">Agenda</button>
-                <button id="tab-admin-btn" class="flex-1 py-4 text-sm font-bold hidden">Usuários</button>
+            <div class="flex border-b border-gray-200 mb-6 bg-white rounded-t-2xl overflow-hidden">
+                <button id="tab-form-btn" class="tab-btn flex-1 py-4 font-bold transition">CADASTRO</button>
+                <button id="tab-list-btn" class="tab-btn flex-1 py-4 font-bold transition">AGENDA</button>
+                <button id="tab-admin-btn" class="tab-btn flex-1 py-4 font-bold transition hidden">EQUIPE</button>
             </div>
 
-            <!-- VIEW: CADASTRO -->
             <div id="form-view">
-                <div class="card bg-white p-8 rounded-3xl">
-                    <form onsubmit="window.saveAppointment(event)" id="appointment-form" class="space-y-5">
+                <div class="card bg-white p-6 rounded-3xl">
+                    <form onsubmit="window.saveAppointment(event)" id="appointment-form" class="space-y-4">
                         <input type="hidden" id="app-id">
-                        <div class="grid grid-cols-2 gap-5">
-                            <input type="date" id="app-date" required class="bg-gray-50 rounded-xl p-3 border-0 focus:ring-2 focus:ring-indigo-500 outline-none">
-                            <input type="time" id="app-time" required class="bg-gray-50 rounded-xl p-3 border-0 focus:ring-2 focus:ring-indigo-500 outline-none">
+                        <div class="grid grid-cols-2 gap-4 input-group">
+                            <input type="date" id="app-date" required class="bg-gray-50 rounded-xl p-4 border-0 focus:ring-2 focus:ring-indigo-500 outline-none">
+                            <input type="time" id="app-time" required class="bg-gray-50 rounded-xl p-4 border-0 focus:ring-2 focus:ring-indigo-500 outline-none">
                         </div>
-                        <textarea id="app-details" rows="2" required class="w-full bg-gray-50 rounded-xl p-3 border-0 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Compromisso"></textarea>
-                        <div class="grid grid-cols-3 gap-5">
-                            <input type="text" id="app-contact" class="bg-gray-50 rounded-xl p-3 border-0 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Contato">
-                            <select id="app-activity" class="bg-gray-50 rounded-xl p-3 border-0 focus:ring-2 focus:ring-indigo-500 outline-none"><option value="Mandato">Mandato</option><option value="Campanha">Campanha</option></select>
-                            <select id="app-press" class="bg-gray-50 rounded-xl p-3 border-0 focus:ring-2 focus:ring-indigo-500 outline-none"><option value="Não Acompanhar">Não Acompanhar</option><option value="Acompanhar">Acompanhar</option></select>
+                        <textarea id="app-details" rows="3" required class="w-full bg-gray-50 rounded-xl p-4 border-0 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="O que será feito?"></textarea>
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <input type="text" id="app-contact" class="bg-gray-50 rounded-xl p-4 border-0" placeholder="Contato">
+                            <select id="app-activity" class="bg-gray-50 rounded-xl p-4 border-0"><option value="Mandato">Mandato</option><option value="Campanha">Campanha</option></select>
+                            <select id="app-press" class="bg-gray-50 rounded-xl p-4 border-0"><option value="Não Acompanhar">Não Acompanhar</option><option value="Acompanhar">Imprensa Acompanha</option></select>
                         </div>
-                        <input type="text" id="app-location" class="w-full bg-gray-50 rounded-xl p-3 border-0 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Local">
-                        <div class="flex items-center bg-red-50 p-4 rounded-2xl border border-red-100"><input type="checkbox" id="app-status" class="w-5 h-5 text-red-600"><label class="ml-3 text-sm font-bold text-red-600 uppercase">Acontecendo</label></div>
-                        <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl shadow-xl hover:bg-indigo-700 transition">Salvar Registro</button>
+                        <input type="text" id="app-location" class="w-full bg-gray-50 rounded-xl p-4 border-0" placeholder="Local do compromisso">
+                        <div class="flex items-center bg-red-50 p-4 rounded-2xl border border-red-100">
+                            <input type="checkbox" id="app-status" class="w-6 h-6 text-red-600 rounded">
+                            <label for="app-status" class="ml-3 font-bold text-red-600">ACONTECENDO AGORA</label>
+                        </div>
+                        <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl shadow-xl hover:bg-indigo-700">SALVAR REGISTRO</button>
                     </form>
                 </div>
             </div>
 
-            <!-- VIEW: LISTA -->
             <div id="list-view" class="hidden">
-                <div class="mb-6 bg-white p-4 rounded-2xl border flex items-center shadow-sm">
-                    <label class="text-[10px] font-black text-gray-400 mr-4 uppercase tracking-widest">Filtrar:</label>
-                    <select id="list-filter" class="text-sm font-bold text-gray-700 outline-none bg-transparent cursor-pointer flex-grow"><option value="Ambos">Tudo</option><option value="Mandato">Mandato</option><option value="Campanha">Campanha</option></select>
+                <div class="mb-6 bg-white p-3 rounded-2xl border mx-2">
+                    <select id="list-filter" class="w-full text-sm font-bold text-gray-700 bg-transparent outline-none">
+                        <option value="Ambos">TUDO (Mandato e Campanha)</option>
+                        <option value="Mandato">APENAS MANDATO</option>
+                        <option value="Campanha">APENAS CAMPANHA</option>
+                    </select>
                 </div>
-                <div id="appointments-list" class="space-y-4"></div>
+                <div id="appointments-list"></div>
             </div>
 
-            <!-- VIEW: USUÁRIOS -->
             <div id="admin-view" class="hidden">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <form onsubmit="window.saveUser(event)" id="user-form" class="card bg-white p-8 rounded-3xl space-y-4">
-                        <h3 class="font-bold text-indigo-600 mb-2">Novo Usuário</h3>
-                        <input type="text" id="u-cpf" placeholder="CPF" class="w-full bg-gray-50 rounded-xl p-3 border-0">
-                        <input type="text" id="u-name" placeholder="Nome Completo" class="w-full bg-gray-50 rounded-xl p-3 border-0">
-                        <input type="password" id="u-pass" placeholder="Senha" class="w-full bg-gray-50 rounded-xl p-3 border-0">
-                        <select id="u-role" class="w-full bg-gray-50 rounded-xl p-3 border-0"><option value="Visitante">Visitante</option><option value="Cadastrador">Cadastrador</option><option value="Principal">Principal</option><option value="Administrador">Administrador</option></select>
-                        <button type="submit" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold">Criar Acesso</button>
-                    </form>
-                    <div class="card bg-white p-8 rounded-3xl"><h3 class="font-bold text-gray-700 mb-6">Lista de Acessos</h3><div id="users-list"></div></div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mx-2">
+                    <div class="card bg-white p-6 rounded-3xl">
+                        <h3 class="font-bold text-indigo-600 mb-4 uppercase text-sm">Gerenciar Equipe</h3>
+                        <form onsubmit="window.saveUser(event)" id="user-form" class="space-y-3">
+                            <input type="text" id="u-cpf" placeholder="CPF" class="w-full bg-gray-50 rounded-xl p-4 border-0">
+                            <input type="text" id="u-name" placeholder="Nome" class="w-full bg-gray-50 rounded-xl p-4 border-0">
+                            <input type="password" id="u-pass" placeholder="Senha" class="w-full bg-gray-50 rounded-xl p-4 border-0">
+                            <select id="u-role" class="w-full bg-gray-50 rounded-xl p-4 border-0">
+                                <option value="Visitante">Visitante</option>
+                                <option value="Cadastrador">Cadastrador</option>
+                                <option value="Principal">Principal</option>
+                                <option value="Administrador">Administrador</option>
+                            </select>
+                            <select id="u-status" class="w-full bg-gray-50 rounded-xl p-4 border-0">
+                                <option value="Ativo">Status: Ativo</option>
+                                <option value="Suspenso">Status: Suspenso</option>
+                            </select>
+                            <button type="submit" class="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold">SALVAR USUÁRIO</button>
+                        </form>
+                    </div>
+                    <div class="card bg-white p-6 rounded-3xl">
+                        <h3 class="font-bold text-gray-700 mb-4 uppercase text-sm">Lista de Usuários</h3>
+                        <p class="text-[10px] text-gray-400 mb-2 italic">Clique para editar</p>
+                        <div id="users-list" class="max-h-[400px] overflow-y-auto"></div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- MODAIS EXPORT / IMPORT -->
+    <!-- MODAIS -->
     <div id="export-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
-        <div class="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl">
-            <h3 class="font-bold text-lg mb-6">Exportar para PDF</h3>
+        <div class="bg-white rounded-3xl p-6 w-full max-w-sm">
+            <h3 class="font-bold text-lg mb-6">Filtros do PDF</h3>
             <div class="space-y-4">
-                <select id="exp-filter" class="w-full border rounded-xl p-3"><option value="Ambos">Ambos</option><option value="Mandato">Mandato</option><option value="Campanha">Campanha</option></select>
-                <input type="date" id="exp-start" class="w-full border rounded-xl p-3">
-                <input type="date" id="exp-end" class="w-full border rounded-xl p-3">
-                <button onclick="window.exportPDFTable()" class="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl shadow-xl mt-4">Gerar Tabela</button>
-                <button onclick="document.getElementById('export-modal').classList.add('hidden')" class="w-full py-2 text-gray-500 text-xs font-bold">Cancelar</button>
+                <input type="date" id="exp-start" class="w-full border rounded-xl p-4">
+                <input type="date" id="exp-end" class="w-full border rounded-xl p-4">
+                <button onclick="window.exportPDFTable()" class="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl shadow-lg">GERAR PDF</button>
+                <button onclick="document.getElementById('export-modal').classList.add('hidden')" class="w-full py-2 text-gray-400 font-bold text-xs uppercase">FECHAR</button>
             </div>
         </div>
     </div>
 
-    <div id="import-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 hidden z-50">
-        <div class="bg-white rounded-[2.5rem] p-10 w-full max-w-sm text-center shadow-2xl">
-            <h3 class="font-bold mb-4">Importar do Excel</h3>
-            <input type="file" id="import-file" accept=".xlsx, .xls" class="mb-6 text-xs w-full">
-            <button onclick="document.getElementById('import-modal').classList.add('hidden')" class="w-full py-2 text-gray-400 text-xs font-bold">Fechar</button>
+    <div id="import-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white rounded-3xl p-8 w-full max-w-sm text-center">
+            <h3 class="font-bold mb-4 uppercase text-sm">Importação Coletiva</h3>
+            <div class="space-y-4 text-left mb-6">
+                <label class="flex items-center space-x-2 bg-gray-50 p-4 rounded-xl">
+                    <input type="checkbox" id="imp-auth" checked class="w-6 h-6">
+                    <span class="text-sm font-bold">Importar como AUTORIZADO</span>
+                </label>
+                <select id="imp-type" class="w-full bg-gray-50 p-4 rounded-xl border-0 font-bold">
+                    <option value="Mandato">Tudo como MANDATO</option>
+                    <option value="Campanha">Tudo como CAMPANHA</option>
+                </select>
+                <input type="file" id="import-file" accept=".xlsx, .xls" class="text-xs w-full bg-gray-100 p-4 rounded-xl">
+            </div>
+            <button onclick="document.getElementById('import-modal').classList.add('hidden')" class="text-gray-400 text-xs font-bold uppercase">CANCELAR</button>
         </div>
     </div>
+
 </body>
 </html>
