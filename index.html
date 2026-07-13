@@ -328,7 +328,7 @@
         };
         initAuth();
 
-        // --- STREAMING_CHUNK: Lógica de Login ---
+        // --- Lógica de Login ---
         document.getElementById('login-form').onsubmit = async (e) => {
             e.preventDefault();
             const cpf = document.getElementById('login-cpf').value.replace(/\D/g, '');
@@ -417,7 +417,7 @@
             return new Date(`${dStr}T00:00:00`).getTime();
         };
 
-        // --- STREAMING_CHUNK: Lógica de Cadastro e Agenda ---
+        // --- Lógica de Cadastro e Agenda ---
         document.getElementById('appointment-form').onsubmit = async (e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -655,7 +655,7 @@
         window.resetUserForm = () => { document.getElementById('user-form').reset(); document.getElementById('u-cpf').disabled = false; document.getElementById('user-form-title').textContent = "Novo Acesso"; };
         window.deleteUser = async (cpf) => confirm("Remover acesso permanentemente?") && await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpf));
 
-        // --- STREAMING_CHUNK: Geração do PDF ---
+        // --- Geração do PDF ---
         window.handleExportPDF = () => {
             const start = document.getElementById('exp-start').value;
             const end = document.getElementById('exp-end').value;
@@ -686,8 +686,8 @@
             const grouped = {};
             filtered.forEach(a => { if(!grouped[a.date]) grouped[a.date] = []; grouped[a.date].push(a); });
 
-            // Ordem cronológica no PDF (da data mais próxima/antiga para a mais distante/futura)
-            Object.keys(grouped).sort().forEach(date => {
+            // AQUI É GARANTIDA A ORDEM CRESCENTE (Da data mais antiga/próxima para a mais futura)
+            Object.keys(grouped).sort((a, b) => a.localeCompare(b)).forEach(date => {
                 grouped[date].sort((a,b) => a.time.localeCompare(b.time));
                 
                 html += `<div class="date-header" style="background:#eee; border:1px solid #000; padding:4px 8px; font-weight:bold; margin-top:15px; font-family:sans-serif;">DATA: ${formatDateStr(date)}</div>
