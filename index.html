@@ -585,7 +585,10 @@
                             <p class="text-[9px] text-slate-400 uppercase font-black">Data Limite</p>
                             <p class="text-xs font-bold ${isOver?'text-red-600':'text-slate-600'}">${formatDateStr(t.deadline)}</p>
                         </div>
-                        <button onclick="window.resolveTask('${t.id}')" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-black hover:bg-indigo-700 transition">Adicionar</button>
+                        <div class="flex items-center gap-2">
+                            <button onclick="window.deleteTask('${t.id}')" class="text-red-400 hover:bg-red-50 p-2 rounded-full transition font-bold" title="Excluir Lembrete">✕</button>
+                            <button onclick="window.resolveTask('${t.id}')" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-black hover:bg-indigo-700 transition">Concluir</button>
+                        </div>
                     </div>`;
                 p.appendChild(card);
             });
@@ -683,8 +686,8 @@
             const grouped = {};
             filtered.forEach(a => { if(!grouped[a.date]) grouped[a.date] = []; grouped[a.date].push(a); });
 
-            // Mantido o sort para garantir a ordem decrescente no PDF (mais nova para mais antiga)
-            Object.keys(grouped).sort().reverse().forEach(date => {
+            // Ordem cronológica no PDF (da data mais próxima/antiga para a mais distante/futura)
+            Object.keys(grouped).sort().forEach(date => {
                 grouped[date].sort((a,b) => a.time.localeCompare(b.time));
                 
                 html += `<div class="date-header" style="background:#eee; border:1px solid #000; padding:4px 8px; font-weight:bold; margin-top:15px; font-family:sans-serif;">DATA: ${formatDateStr(date)}</div>
