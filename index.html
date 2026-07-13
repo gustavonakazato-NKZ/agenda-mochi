@@ -305,6 +305,9 @@
         let localAppointments = [];
         let localUsers = [];
         let localTasks = [];
+        
+        // Logo oficial
+        const logoUrl = "https://lh3.googleusercontent.com/d/1qpnoVc0Qy2Y3i9CMxjS0reoQTrhiP2b4";
 
         // --- Inicialização e Data ---
         const getNextDay = () => {
@@ -325,7 +328,7 @@
         };
         initAuth();
 
-        // --- Lógica de Login ---
+        // --- STREAMING_CHUNK: Lógica de Login ---
         document.getElementById('login-form').onsubmit = async (e) => {
             e.preventDefault();
             const cpf = document.getElementById('login-cpf').value.replace(/\D/g, '');
@@ -414,7 +417,7 @@
             return new Date(`${dStr}T00:00:00`).getTime();
         };
 
-        // --- Lógica de Cadastro e Agenda ---
+        // --- STREAMING_CHUNK: Lógica de Cadastro e Agenda ---
         document.getElementById('appointment-form').onsubmit = async (e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -478,8 +481,8 @@
             filtered.sort((a, b) => {
                 const timeA = parseDateSafe(a.date);
                 const timeB = parseDateSafe(b.date);
-                if (timeA !== timeB) return timeA - timeB;
-                return (a.time || "").localeCompare(b.time || "");
+                if (timeA !== timeB) return timeA - timeB; // Crescente
+                return (a.time || "").localeCompare(b.time || ""); // Crescente
             });
 
             let lastDate = '';
@@ -503,7 +506,7 @@
                 let timeColor = isHap ? 'text-red-700' : (a.activity_type === 'Campanha' ? 'text-green-900 font-bold' : 'text-indigo-600');
 
                 card.innerHTML = `
-                    <div class="text-[1.05rem] font-black w-20 flex-shrink-0 ${timeColor}">${a.time}</div>
+                    <div class="text-lg font-black w-20 flex-shrink-0 ${timeColor}">${a.time}</div>
                     
                     <div class="flex-grow">
                         <p class="font-bold text-gray-800">${a.details}</p>
@@ -516,7 +519,6 @@
                         ${!isAuth ? '<div class="mt-2 text-yellow-700 font-bold text-[10px] uppercase">AGUARDANDO AUTORIZAÇÃO</div>' : ''}
                     </div>
                     
-                    <!-- MUDANÇA: Grid 2x2 para os botões -->
                     <div class="grid grid-cols-2 gap-2 mt-3 sm:mt-0 sm:ml-4 flex-shrink-0 self-start">
                         ${canAuth ? `<button onclick="window.toggleAuth('${a.id}', ${!isAuth})" class="p-2 aspect-square flex items-center justify-center bg-gray-100 rounded-lg text-lg" title="Autorizar/Desautorizar">${isAuth ? '🔓' : '✅'}</button>` : ''}
                         ${currentUser.role !== 'Visitante' ? `
@@ -650,7 +652,7 @@
         window.resetUserForm = () => { document.getElementById('user-form').reset(); document.getElementById('u-cpf').disabled = false; document.getElementById('user-form-title').textContent = "Novo Acesso"; };
         window.deleteUser = async (cpf) => confirm("Remover acesso permanentemente?") && await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', cpf));
 
-        // --- PDF ---
+        // --- STREAMING_CHUNK: Geração do PDF ---
         window.handleExportPDF = () => {
             const start = document.getElementById('exp-start').value;
             const end = document.getElementById('exp-end').value;
@@ -681,6 +683,7 @@
             const grouped = {};
             filtered.forEach(a => { if(!grouped[a.date]) grouped[a.date] = []; grouped[a.date].push(a); });
 
+            // Mantido o sort para garantir a ordem decrescente no PDF (mais nova para mais antiga)
             Object.keys(grouped).sort().reverse().forEach(date => {
                 grouped[date].sort((a,b) => a.time.localeCompare(b.time));
                 
@@ -708,10 +711,14 @@
                 html += `</tbody></table>`;
             });
             
-            const win = window.open('', '_blank');
-            win.document.write(`<html><head><title>${fileName}</title></head><body>${html}</body></html>`);
-            win.document.close();
-            setTimeout(() => { win.print(); toggleModal('export-modal'); }, 500);
+            window.toggleModal('export-modal'); // Fecha o modal ANTES de abrir a janela de impressão
+            
+            setTimeout(() => {
+                const win = window.open('', '_blank');
+                win.document.write(`<html><head><title>${fileName}</title></head><body>${html}</body></html>`);
+                win.document.close();
+                setTimeout(() => { win.print(); }, 500);
+            }, 100);
         };
 
         // --- Datas Excel ---
@@ -770,6 +777,8 @@
         window.onload = () => {
             document.getElementById('task-deadline').value = getNextDay();
             document.getElementById('app-date').value = new Date().toISOString().split('T')[0];
+            // Define global function on window for button click
+            window.handleExportPDF = handleExportPDF;
         };
 
     </script>
